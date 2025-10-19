@@ -29,7 +29,7 @@
 - **Old training scripts** (3): train_mobilenet.py, train_simple.py, retrain_efficientnet.py
 - **Old test files** (5): test_efficientnet.py, test_lbph_model.py, etc.
 - **Validation scripts** (3): validate_in_memory.py, validate_simple.py, check_predictions.py
-- **Old app files** (4): app_simple.py, live_surveillance_system.py, etc.
+- **Old app files** (4): 5, live_surveillance_system.py, etc.
 - **Setup scripts** (2): setup_new_laptop.py, capture_unknown_person.py
 - **Batch/shell scripts** (2): start_surveillance.bat, start_surveillance.sh
 - **Old documentation** (8): TESTING_GUIDE.md, MODEL_COMPARISON_ANALYSIS.md, etc.

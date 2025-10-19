@@ -24,6 +24,8 @@ interface AlertsPanelProps {
 export default function AlertsPanel({ alerts, onAcknowledge, onDismiss, onEscalate, onRefresh }: AlertsPanelProps) {
   const [filter, setFilter] = useState('all');
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [selectedRecipients, setSelectedRecipients] = useState<string[]>([]);
   const [escalatedPersons, setEscalatedPersons] = useState<string[]>([]); // Track who received emails
 
   // Authorized persons list - emails from environment variables
@@ -75,6 +77,8 @@ export default function AlertsPanel({ alerts, onAcknowledge, onDismiss, onEscala
   };
 
   const handleAlertSelect = (alert: Alert) => {
+    console.log('Selected alert:', alert);
+    console.log('Alert image field:', alert.image);
     setSelectedAlert(alert);
     setEscalatedPersons([]); // Reset for new alert
   };
@@ -187,16 +191,30 @@ export default function AlertsPanel({ alerts, onAcknowledge, onDismiss, onEscala
                 {selectedAlert.image ? (
                   <div className="relative group">
                     <img
-                      src={selectedAlert.image}
+                      src={selectedAlert.image.startsWith('http') ? selectedAlert.image : `http://localhost:8000${selectedAlert.image}`}
                       alt="Alert Evidence"
                       className="w-full h-80 object-cover rounded-lg border-2 border-gray-200"
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        // Use a security camera placeholder image
+                        target.src = 'https://images.unsplash.com/photo-1557597774-9d273605dfa9?w=800&h=600&fit=crop';
+                        target.onerror = null; // Prevent infinite loop
+                      }}
                     />
                     <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-10 transition-all rounded-lg"></div>
                   </div>
                 ) : (
-                  <div className="w-full h-80 bg-gray-100 rounded-lg flex flex-col items-center justify-center">
-                    <i className="ri-image-line text-gray-400 text-6xl mb-2"></i>
-                    <p className="text-gray-500">No image captured</p>
+                  <div className="w-full h-80 bg-gradient-to-br from-gray-900 to-gray-700 rounded-lg flex flex-col items-center justify-center text-white relative overflow-hidden">
+                    {/* Security Camera Icon Background */}
+                    <div className="absolute inset-0 opacity-10">
+                      <svg className="w-full h-full" viewBox="0 0 200 200" fill="currentColor">
+                        <path d="M100 50c-27.6 0-50 22.4-50 50s22.4 50 50 50 50-22.4 50-50-22.4-50-50-50zm0 80c-16.5 0-30-13.5-30-30s13.5-30 30-30 30 13.5 30 30-13.5 30-30 30z"/>
+                        <circle cx="100" cy="100" r="15"/>
+                      </svg>
+                    </div>
+                    <i className="ri-camera-off-line text-6xl mb-3 relative z-10"></i>
+                    <p className="text-lg font-medium relative z-10">No Evidence Image Available</p>
+                    <p className="text-sm text-gray-400 mt-1 relative z-10">Alert triggered without snapshot</p>
                   </div>
                 )}
               </div>
@@ -472,12 +490,184 @@ export default function AlertsPanel({ alerts, onAcknowledge, onDismiss, onEscala
                 </button>
                 <button
                   onClick={() => {
-                    dismissAlert(selectedAlert.id);
+                    setShowEmailModal(true);
                   }}
-                  className="flex-1 px-4 py-2.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
+                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
                 >
-                  <i className="ri-close-circle-line mr-2"></i>
-                  Dismiss Alert
+                  <i className="ri-mail-send-line mr-2"></i>
+                  Send Email Alert
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Email Selection Modal */}
+      {showEmailModal && selectedAlert && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6 pb-4 border-b">
+                <div className="flex items-center space-x-3">
+                  <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                    <i className="ri-mail-send-line text-2xl text-red-600"></i>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900">Send Alert Email</h3>
+                    <p className="text-sm text-gray-600">Select recipients</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowEmailModal(false);
+                    setSelectedRecipients([]);
+                  }}
+                  className="text-gray-400 hover:text-gray-600 p-1"
+                >
+                  <i className="ri-close-line text-2xl"></i>
+                </button>
+              </div>
+
+              {/* Recipients Selection */}
+              <div className="mb-6">
+                <h4 className="font-semibold text-gray-900 mb-3">
+                  Select Authorized Persons to Notify:
+                </h4>
+                <div className="space-y-2">
+                  {authorizedPersons.map((person) => (
+                    <label
+                      key={person.name}
+                      className={`flex items-center justify-between p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                        selectedRecipients.includes(person.name)
+                          ? 'border-red-500 bg-red-50'
+                          : 'border-gray-200 hover:border-red-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedRecipients.includes(person.name)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedRecipients([...selectedRecipients, person.name]);
+                            } else {
+                              setSelectedRecipients(selectedRecipients.filter(r => r !== person.name));
+                            }
+                          }}
+                          className="w-5 h-5 text-red-600 rounded focus:ring-2 focus:ring-red-500"
+                        />
+                        <i className={`${person.icon} text-2xl text-gray-700`}></i>
+                        <div>
+                          <div className="font-medium text-gray-900">{person.name}</div>
+                          <div className="text-xs text-gray-600">{person.role}</div>
+                          <div className="text-xs text-gray-500">{person.email}</div>
+                        </div>
+                      </div>
+                      {selectedRecipients.includes(person.name) && (
+                        <i className="ri-checkbox-circle-fill text-red-600 text-xl"></i>
+                      )}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Alert Preview */}
+              <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <h4 className="font-semibold text-gray-900 mb-2 text-sm">Email Will Include:</h4>
+                <ul className="space-y-1 text-sm text-gray-700">
+                  <li className="flex items-start">
+                    <i className="ri-checkbox-circle-fill text-green-600 mr-2 mt-0.5"></i>
+                    <span>Captured image (alert_{selectedAlert.id}.jpg)</span>
+                  </li>
+                  <li className="flex items-start">
+                    <i className="ri-checkbox-circle-fill text-green-600 mr-2 mt-0.5"></i>
+                    <span>Alert timestamp & location</span>
+                  </li>
+                  <li className="flex items-start">
+                    <i className="ri-checkbox-circle-fill text-green-600 mr-2 mt-0.5"></i>
+                    <span>Intruder detection details</span>
+                  </li>
+                  <li className="flex items-start">
+                    <i className="ri-checkbox-circle-fill text-green-600 mr-2 mt-0.5"></i>
+                    <span>Recommended security actions</span>
+                  </li>
+                </ul>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  onClick={() => {
+                    setShowEmailModal(false);
+                    setSelectedRecipients([]);
+                  }}
+                  className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                >
+                  <i className="ri-close-line mr-2"></i>
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    if (selectedRecipients.length === 0) {
+                      alert('Please select at least one recipient');
+                      return;
+                    }
+                    
+                    try {
+                      // Prepare alert data for backend
+                      const alertData = {
+                        alert_id: selectedAlert.id,
+                        recipients: selectedRecipients,
+                        alert_data: {
+                          type: selectedAlert.type || 'intruder',
+                          camera: 'Camera 1', // Will be populated from actual alert data
+                          location: selectedAlert.location,
+                          severity: selectedAlert.severity,
+                          confidence: selectedAlert.confidence || 95,
+                          person: selectedAlert.description || 'Unknown', // Use description field
+                          timestamp: selectedAlert.timestamp,
+                          image: selectedAlert.image || ''
+                        }
+                      };
+                      
+                      // Call backend API
+                      const response = await fetch('http://localhost:8000/api/alerts/send-email', {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(alertData),
+                      });
+                      
+                      const result = await response.json();
+                      
+                      if (result.success) {
+                        const recipientNames = selectedRecipients.map(name => {
+                          const person = authorizedPersons.find(p => p.name === name);
+                          return `• ${person?.name} (${person?.email})`;
+                        }).join('\n');
+                        
+                        alert(`✅ Alert email sent successfully!\n\nRecipients:\n${recipientNames}\n\nImage attached: alert_${selectedAlert.id}.jpg\n\nEmail includes:\n• Captured evidence image\n• Alert timestamp & location\n• Intruder detection details\n• Recommended security actions`);
+                        
+                        setShowEmailModal(false);
+                        setSelectedRecipients([]);
+                        dismissAlert(selectedAlert.id);
+                        setSelectedAlert(null);
+                      } else {
+                        alert(`❌ Failed to send email:\n${result.message}`);
+                      }
+                    } catch (error) {
+                      console.error('Error sending email:', error);
+                      alert(`❌ Failed to send email: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                    }
+                  }}
+                  disabled={selectedRecipients.length === 0}
+                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <i className="ri-mail-send-line mr-2"></i>
+                  Send to {selectedRecipients.length > 0 ? selectedRecipients.length : ''} {selectedRecipients.length === 1 ? 'Person' : 'People'}
                 </button>
               </div>
             </div>
