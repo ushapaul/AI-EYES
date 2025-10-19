@@ -1,0 +1,44 @@
+{
+  "system": {
+    "mode": "farm",
+    "auto_training": true,
+    "save_detections": true,
+    "max_storage_days": 30
+  },
+  "cameras": [
+    {
+      "id": 1,
+      "name": "Local Webcam",
+      "location": "Main Entrance",
+      "url": "0",
+      "type": "farm",
+      "ai_model": "face_recognition",
+      "enabled": true
+    },
+    {
+      "id": 2,
+      "name": "IP Webcam Mobile",
+      "location": "Test Location", 
+      "url": "http://192.168.1.100:8080/videofeed",
+      "type": "farm",
+      "ai_model": "face_recognition",
+      "enabled": false
+    }
+  ],
+  "email": {
+    "enabled": false,
+    "smtp_server": "smtp.gmail.com",
+    "smtp_port": 587,
+    "email_address": "your-email@gmail.com",
+    "email_password": "your-app-password",
+    "recipients": [
+      "admin@yourdomain.com"
+    ]
+  },
+  "detection": {
+    "face_recognition_threshold": 0.6,
+    "suspicious_activity_threshold": 0.7,
+    "detection_confidence": 0.5,
+    "detection_fps": 10
+  }
+}

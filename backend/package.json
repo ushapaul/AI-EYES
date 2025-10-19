@@ -1,0 +1,123 @@
+{
+  "name": "ai-eyes-surveillance-backend",
+  "version": "1.0.0",
+  "description": "AI-powered multi-camera surveillance system backend with exact dependency versions",
+  "main": "app_simple.py",
+  "scripts": {
+    "setup": "python setup_environment.py",
+    "install": "pip install -r requirements_exact.txt",
+    "start": "python app_simple.py",
+    "surveillance": "python multi_camera_surveillance.py",
+    "test": "python quick_test.py"
+  },
+  "engines": {
+    "python": "3.10.1"
+  },
+  "systemRequirements": {
+    "python": {
+      "version": "3.10.1",
+      "reason": "MediaPipe compatibility - versions 3.11+ have protobuf conflicts",
+      "download": "https://www.python.org/downloads/release/python-3101/"
+    },
+    "platform": {
+      "windows": ">=10",
+      "macos": ">=10.15", 
+      "linux": ">=Ubuntu 20.04"
+    },
+    "memory": ">=8GB RAM recommended",
+    "storage": ">=2GB free space",
+    "camera": "IP camera or USB webcam for testing"
+  },
+  "exactDependencies": {
+    "core_web": {
+      "Flask": "2.3.3",
+      "Flask-CORS": "4.0.0", 
+      "Flask-SocketIO": "5.3.6",
+      "eventlet": "0.33.3"
+    },
+    "ai_ml_exact": {
+      "tensorflow": "2.13.0",
+      "mediapipe": "0.10.21",
+      "torch": "2.0.1",
+      "torchvision": "0.15.2", 
+      "ultralytics": "8.0.196",
+      "protobuf": "3.20.3"
+    },
+    "computer_vision_exact": {
+      "opencv-python": "4.8.1.78",
+      "opencv-contrib-python": "4.8.1.78",
+      "numpy": "1.24.3",
+      "Pillow": "10.0.1",
+      "imutils": "0.5.4"
+    },
+    "database_exact": {
+      "pymongo": "4.5.0",
+      "motor": "3.3.1"
+    },
+    "communication_exact": {
+      "requests": "2.31.0",
+      "python-socketio": "5.9.0", 
+      "sendgrid": "6.10.0",
+      "python-dotenv": "1.0.0"
+    },
+    "ml_support_exact": {
+      "scikit-learn": "1.3.0",
+      "scipy": "1.11.3",
+      "matplotlib": "3.7.2",
+      "PyJWT": "2.8.0"
+    },
+    "conflict_resolution": {
+      "grpcio": "1.59.0",
+      "setuptools": "68.0.0",
+      "wheel": "0.41.2",
+      "pip": "23.2.1"
+    }
+  },
+  "installation": {
+    "automated_setup": "python setup_new_laptop.py",
+    "manual_steps": [
+      "1. Download Python 3.10.1 from python.org",
+      "2. Install Python with 'Add to PATH' checked", 
+      "3. Open Command Prompt/PowerShell as Administrator",
+      "4. Run: python -m venv venv_py310",
+      "5. Activate: venv_py310\\Scripts\\activate",
+      "6. Upgrade pip: python -m pip install --upgrade pip==23.2.1",
+      "7. Install requirements: pip install -r requirements_exact.txt",
+      "8. Setup environment: copy .env.example to .env and configure",
+      "9. Test installation: python quick_test.py"
+    ]
+  },
+  "troubleshooting": {
+    "python_version_check": "python --version should show 3.10.1",
+    "common_conflicts": {
+      "mediapipe_protobuf": {
+        "error": "protobuf version conflict",
+        "solution": "pip install protobuf==3.20.3 --force-reinstall",
+        "prevention": "Always use exact versions from requirements_exact.txt"
+      },
+      "tensorflow_mediapipe": {
+        "error": "TensorFlow 2.14+ breaks MediaPipe",
+        "solution": "Use TensorFlow 2.13.0 exactly",
+        "command": "pip install tensorflow==2.13.0 --force-reinstall"
+      },
+      "opencv_dll_error": {
+        "error": "OpenCV DLL load failed",
+        "solution": "Install Visual C++ Redistributable 2019+",
+        "download": "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+      },
+      "port_8000_busy": {
+        "error": "Address already in use",
+        "solution": "app_simple.py=8000, multi_camera_surveillance.py=8001",
+        "check": "netstat -ano | findstr :8000"
+      }
+    }
+  },
+  "ports": {
+    "app_simple": 8000,
+    "multi_camera_surveillance": 8001,
+    "mongodb": 27017,
+    "frontend_dev": 5173
+  },
+  "author": "AI Eyes Security Team",
+  "license": "MIT"
+}
