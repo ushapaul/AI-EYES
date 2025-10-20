@@ -239,6 +239,244 @@ def create_app():
         except Exception as e:
             return {'error': str(e)}, 500
     
+    # Recording management - Global storage for active recordings
+    active_recordings = {}  # {camera_id: {'thread': thread, 'stop_event': event, 'filename': str}}
+    
+    @app.route('/api/camera/<camera_id>/start-recording', methods=['POST'])
+    def start_recording(camera_id):
+        """Start recording video from camera"""
+        try:
+            import cv2
+            import threading
+            from datetime import datetime
+            
+            # Check if already recording
+            if camera_id in active_recordings:
+                return {'error': 'Camera is already recording'}, 400
+            
+            # Get camera details
+            camera = camera_model.find_by_id(camera_id)
+            if not camera:
+                return {'error': 'Camera not found'}, 404
+            
+            # Create recordings directory
+            recordings_dir = os.path.join('storage', 'recordings')
+            os.makedirs(recordings_dir, exist_ok=True)
+            
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{camera['name']}_{timestamp}.avi"
+            filepath = os.path.join(recordings_dir, filename)
+            
+            # Create stop event for thread control
+            stop_event = threading.Event()
+            
+            def record_video():
+                """Thread function to record video"""
+                try:
+                    camera_url = camera.get('url')
+                    cap = cv2.VideoCapture(camera_url)
+                    
+                    if not cap.isOpened():
+                        print(f"Failed to open camera {camera_id} for recording")
+                        return
+                    
+                    # Get video properties
+                    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    fps = int(cap.get(cv2.CAP_PROP_FPS)) or 20  # Default to 20 if not available
+                    
+                    # Use MJPG codec - more reliable and plays in most browsers
+                    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+                    out = cv2.VideoWriter(filepath, fourcc, fps, (frame_width, frame_height))
+                    
+                    print(f"📹 Started recording {camera['name']} to {filepath}")
+                    
+                    while not stop_event.is_set():
+                        ret, frame = cap.read()
+                        if ret:
+                            out.write(frame)
+                        else:
+                            break
+                        
+                        # Small delay to prevent CPU overload
+                        import time
+                        time.sleep(0.01)
+                    
+                    # Release resources
+                    cap.release()
+                    out.release()
+                    print(f"✅ Recording stopped for {camera['name']}")
+                    
+                except Exception as e:
+                    print(f"❌ Recording error for {camera_id}: {e}")
+            
+            # Start recording thread
+            recording_thread = threading.Thread(target=record_video, daemon=True)
+            recording_thread.start()
+            
+            # Store recording info
+            active_recordings[camera_id] = {
+                'thread': recording_thread,
+                'stop_event': stop_event,
+                'filename': filename,
+                'filepath': filepath,
+                'start_time': datetime.now().isoformat()
+            }
+            
+            # Create log entry
+            log_model.create_log(
+                camera_id=camera_id,
+                action='recording_started',
+                description=f"Started recording from camera '{camera['name']}'"
+            )
+            
+            return {
+                'success': True,
+                'message': 'Recording started successfully',
+                'filename': filename,
+                'camera_name': camera['name']
+            }
+            
+        except Exception as e:
+            return {'error': str(e)}, 500
+    
+    @app.route('/api/camera/<camera_id>/stop-recording', methods=['POST'])
+    def stop_recording(camera_id):
+        """Stop recording video from camera"""
+        try:
+            # Check if recording exists
+            if camera_id not in active_recordings:
+                return {'error': 'Camera is not recording'}, 400
+            
+            # Get camera details
+            camera = camera_model.find_by_id(camera_id)
+            
+            # Stop the recording
+            recording_info = active_recordings[camera_id]
+            recording_info['stop_event'].set()
+            recording_info['thread'].join(timeout=5)  # Wait up to 5 seconds
+            
+            # Get file info
+            filename = recording_info['filename']
+            filepath = recording_info['filepath']
+            
+            # Remove from active recordings
+            del active_recordings[camera_id]
+            
+            # Create log entry
+            if camera:
+                log_model.create_log(
+                    camera_id=camera_id,
+                    action='recording_stopped',
+                    description=f"Stopped recording from camera '{camera['name']}'"
+                )
+            
+            return {
+                'success': True,
+                'message': 'Recording stopped successfully',
+                'filename': filename,
+                'filepath': filepath
+            }
+            
+        except Exception as e:
+            return {'error': str(e)}, 500
+    
+    @app.route('/api/camera/<camera_id>/recording-status', methods=['GET'])
+    def get_recording_status(camera_id):
+        """Get recording status for a camera"""
+        try:
+            is_recording = camera_id in active_recordings
+            
+            if is_recording:
+                recording_info = active_recordings[camera_id]
+                return {
+                    'is_recording': True,
+                    'filename': recording_info['filename'],
+                    'start_time': recording_info['start_time']
+                }
+            else:
+                return {
+                    'is_recording': False
+                }
+                
+        except Exception as e:
+            return {'error': str(e)}, 500
+    
+    @app.route('/api/recordings/list', methods=['GET'])
+    def list_recordings():
+        """List all recorded videos"""
+        try:
+            recordings_dir = os.path.join('storage', 'recordings')
+            
+            if not os.path.exists(recordings_dir):
+                return []
+            
+            recordings = []
+            for filename in os.listdir(recordings_dir):
+                if filename.endswith(('.avi', '.mp4')):
+                    filepath = os.path.join(recordings_dir, filename)
+                    file_stats = os.stat(filepath)
+                    
+                    recordings.append({
+                        'filename': filename,
+                        'size': file_stats.st_size,
+                        'created': datetime.fromtimestamp(file_stats.st_ctime).isoformat(),
+                        'url': f'http://localhost:{PORT}/api/storage/recording/{filename}'
+                    })
+            
+            # Sort by creation time (newest first)
+            recordings.sort(key=lambda x: x['created'], reverse=True)
+            
+            return recordings
+            
+        except Exception as e:
+            return {'error': str(e)}, 500
+    
+    @app.route('/api/storage/recording/<path:filename>')
+    def serve_recording(filename):
+        """Serve recorded video file"""
+        try:
+            from flask import send_from_directory
+            recordings_dir = os.path.join('storage', 'recordings')
+            
+            # Determine MIME type based on file extension
+            mime_type = 'video/mp4' if filename.endswith('.mp4') else 'video/x-msvideo'
+            
+            response = send_from_directory(recordings_dir, filename)
+            response.headers['Content-Type'] = mime_type
+            response.headers['Accept-Ranges'] = 'bytes'
+            return response
+        except Exception as e:
+            return {'error': str(e)}, 404
+    
+    @app.route('/api/recording/<path:filename>', methods=['DELETE'])
+    def delete_recording(filename):
+        """Delete a recorded video file"""
+        try:
+            recordings_dir = os.path.join('storage', 'recordings')
+            filepath = os.path.join(recordings_dir, filename)
+            
+            # Check if file exists
+            if not os.path.exists(filepath):
+                return {'error': 'Recording not found'}, 404
+            
+            # Check if the camera is currently recording this file
+            for camera_id, rec_info in active_recordings.items():
+                if rec_info.get('filename') == filename:
+                    return {'error': 'Cannot delete recording that is currently in progress'}, 400
+            
+            # Delete the file
+            os.remove(filepath)
+            
+            return {
+                'success': True,
+                'message': f'Recording {filename} deleted successfully'
+            }
+            
+        except Exception as e:
+            return {'error': str(e)}, 500
+    
     @app.route('/api/camera/<camera_id>/delete', methods=['DELETE'])
     def delete_camera(camera_id):
         """Delete a camera"""
