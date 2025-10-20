@@ -92,11 +92,39 @@ def create_app():
             'database_connected': is_db_connected()
         }
     
-    @app.route('/api/camera/list')
+    @app.route('/api/cameras/list')
     def get_cameras():
-        # Return cameras from MongoDB
+        # Return cameras from MongoDB with real-time status check
+        import requests
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
         cameras = camera_model.find_all()
-        return cameras
+        
+        def check_camera_status(camera):
+            """Check if a single camera is online"""
+            camera_url = camera.get('url')
+            if camera_url:
+                try:
+                    # Quick timeout for faster response
+                    response = requests.head(camera_url, timeout=0.5)
+                    camera['status'] = 'online' if response.status_code in [200, 302] else 'offline'
+                except:
+                    camera['status'] = 'offline'
+            else:
+                camera['status'] = 'offline'
+            return camera
+        
+        # Check all cameras in parallel using ThreadPool
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            # Submit all camera checks
+            future_to_camera = {executor.submit(check_camera_status, cam): cam for cam in cameras}
+            
+            # Wait for all checks to complete
+            checked_cameras = []
+            for future in as_completed(future_to_camera):
+                checked_cameras.append(future.result())
+        
+        return checked_cameras
     
     @app.route('/api/alerts/list')
     def get_alerts():

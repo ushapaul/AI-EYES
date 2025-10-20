@@ -32,6 +32,14 @@ class MultiCameraAISurveillance:
     Detects all available IP cameras and runs AI surveillance on each
     """
     
+    # ═══════════════════════════════════════════════════════════
+    # 🎯 PERFORMANCE CONFIGURATION - ADJUST HERE
+    # ═══════════════════════════════════════════════════════════
+    FRAME_SKIP_INTERVAL = 3  # Process every Nth frame (3 = every 3rd frame)
+                             # Lower = More accurate but slower (1 = every frame, 2 = every 2nd frame)
+                             # Higher = Faster but may miss detections (5 = every 5th frame, 10 = every 10th)
+    # ═══════════════════════════════════════════════════════════
+    
     def __init__(self):
         self.app = Flask(__name__)
         
@@ -50,6 +58,11 @@ class MultiCameraAISurveillance:
         
         # Frame processing counters for optimization
         self.frame_counters = {}  # Track frame numbers per camera
+        
+        # Camera auto-discovery settings
+        self.camera_discovery_interval = 10  # Check for new cameras every 10 seconds
+        self.discovery_thread = None
+        self.discovery_running = False
         
         # Person tracking for activity analysis
         self.person_trackers = {}  # Track person movements per camera
@@ -142,17 +155,22 @@ class MultiCameraAISurveillance:
                             camera_url = cam.get('url')
                             
                             if camera_url:
-                                # Verify camera is accessible
+                                # Add camera regardless of current accessibility status
+                                # System will auto-retry connection in surveillance thread
+                                cameras[camera_name] = {
+                                    'url': camera_url,
+                                    'ai_mode': cam.get('ai_mode', 'both')
+                                }
+                                
+                                # Check current accessibility for status display
                                 try:
                                     response = requests.head(camera_url, timeout=2)
                                     if response.status_code in [200, 302]:
-                                        cameras[camera_name] = {
-                                            'url': camera_url,
-                                            'ai_mode': cam.get('ai_mode', 'both')
-                                        }
-                                        print(f"✅ {camera_name}: {camera_url}")
+                                        print(f"✅ {camera_name}: {camera_url} (online)")
+                                    else:
+                                        print(f"⏳ {camera_name}: {camera_url} (will retry connection)")
                                 except:
-                                    print(f"❌ {camera_name}: {camera_url} (not accessible)")
+                                    print(f"⏳ {camera_name}: {camera_url} (waiting for connection)")
                     else:
                         print("ℹ️ No enabled cameras in main database")
             except Exception as e:
@@ -642,13 +660,22 @@ class MultiCameraAISurveillance:
                     annotated_frame = frame_data.get('annotated_frame')
                     
                     if annotated_frame is not None:
-                        ret, buffer = cv2.imencode('.jpg', annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                        # Resize frame for faster streaming (reduce to 640x360 for web)
+                        height, width = annotated_frame.shape[:2]
+                        if width > 640:
+                            scale = 640 / width
+                            new_width = 640
+                            new_height = int(height * scale)
+                            annotated_frame = cv2.resize(annotated_frame, (new_width, new_height))
+                        
+                        # Lower JPEG quality for faster transmission (60 instead of 80)
+                        ret, buffer = cv2.imencode('.jpg', annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
                         if ret:
                             frame = buffer.tobytes()
                             yield (b'--frame\r\n'
                                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
                 
-                time.sleep(0.1)  # ~10 FPS for web
+                time.sleep(0.05)  # ~20 FPS for smoother playback
                 
             except Exception as e:
                 print(f"Frame generation error for {camera_name}: {e}")
@@ -739,8 +766,8 @@ class MultiCameraAISurveillance:
         # Get AI mode for this camera
         ai_mode = self.detection_stats.get(camera_name, {}).get('ai_mode', 'both')
         
-        # Performance optimization: Process every 3rd frame for faster detection
-        if frame_count % 3 != 0:
+        # Performance optimization: Process every Nth frame based on configuration
+        if frame_count % self.FRAME_SKIP_INTERVAL != 0:
             # Return cached detection data for skipped frames
             if camera_name in self.latest_frames:
                 cached_data = self.latest_frames[camera_name].copy()
@@ -764,8 +791,8 @@ class MultiCameraAISurveillance:
             # Object Detection on much smaller frame
             print(f"{'='*60}")
             print(f"🤖 [{camera_name}] YOLOv9 Detection Running...")
-            print(f"{'='*60}")
             detections = self.detector.detect(small_frame)
+            print(f"{'='*60}")
             
             # Scale detection coordinates back to original frame size (adjusted for 0.3 scale)
             for detection in detections:
@@ -905,29 +932,25 @@ class MultiCameraAISurveillance:
         
         # === Face Recognition (MobileNetV2 with Unknown Calibration) ===
         authorized_persons_present = False  # Track if authorized persons are detected
-        print(f"🔧 DEBUG: Face recognizer trained: {self.face_recognizer.is_trained}")
         if ai_mode in ['lbph', 'face_recognition', 'both'] and self.face_recognizer.is_trained:
             # Initialize frame counter for this camera if not exists
             if camera_name not in self.frame_counters:
                 self.frame_counters[camera_name] = 0
             
             self.frame_counters[camera_name] += 1
-            print(f"{'='*60}")
-            print(f"🎥 [{camera_name}] Frame counter: {self.frame_counters[camera_name]}")
-            print(f"{'='*60}")
             
-            # Run face recognition when person is detected OR every 3rd frame (same as YOLOv9)
+            # Run face recognition when person is detected OR every Nth frame (based on configuration)
             run_face_recognition = False
             if person_count > 0:
                 run_face_recognition = True
-                print(f"🔧 DEBUG: Running face detection - person detected on frame {self.frame_counters[camera_name]}")
-            elif self.frame_counters[camera_name] % 3 == 0:
+            elif self.frame_counters[camera_name] % self.FRAME_SKIP_INTERVAL == 0:
                 run_face_recognition = True
-                print(f"🔧 DEBUG: Running face detection - scheduled frame {self.frame_counters[camera_name]}")
             
             if run_face_recognition:
-                print(f"🔧 DEBUG: Running face detection on frame {self.frame_counters[camera_name]}")
-                print(f"🔍 Frame dimensions for face detection: {frame.shape}")
+                print(f"{'='*60}")
+                print(f"🎥 [{camera_name}] Frame counter: {self.frame_counters[camera_name]}")
+                print(f"🔍 Running face detection on frame {self.frame_counters[camera_name]}")
+                print(f"🔍 Frame dimensions: {frame.shape}")
                 
                 # Use MobileNetV2 face recognition with Unknown calibration
                 face_names, face_locations, verification_results = self.face_recognizer.recognize_faces_in_frame(frame)
@@ -1086,6 +1109,9 @@ class MultiCameraAISurveillance:
                         # No previous memory - face detection will handle this on next frame
                         # Don't alert immediately, give face detection a chance to work
                         print(f"ℹ️  INFO: Person detected, waiting for face detection (no previous authorization data)")
+                
+                # Close face recognition section (only when face detection actually ran)
+                print(f"{'='*60}")
         
         # Crowd detection (always alert for large groups regardless of authorization)
         if person_count > 3:
@@ -1283,14 +1309,108 @@ class MultiCameraAISurveillance:
             self.start_camera_surveillance(camera_name)
         
         print(f"🎯 Multi-camera surveillance active on {len(self.active_cameras)} cameras")
+        
+        # Start automatic camera discovery
+        self.start_camera_discovery()
+    
+    def start_camera_discovery(self):
+        """Start background thread to automatically detect new cameras"""
+        if not self.discovery_running:
+            self.discovery_running = True
+            self.discovery_thread = threading.Thread(
+                target=self._camera_discovery_loop,
+                daemon=True
+            )
+            self.discovery_thread.start()
+            print(f"🔍 Auto-discovery started: Checking for new cameras every {self.camera_discovery_interval} seconds")
     
     def stop_all_surveillance(self):
         """Stop surveillance on all cameras"""
         print("🛑 Stopping all camera surveillance...")
+        
+        # Stop auto-discovery first
+        self.stop_camera_discovery()
+        
         camera_names = list(self.active_cameras.keys())
         for camera_name in camera_names:
             self.stop_camera_surveillance(camera_name)
         print("✅ All camera surveillance stopped")
+    
+    def _camera_discovery_loop(self):
+        """Background loop to check for new cameras"""
+        while self.discovery_running:
+            try:
+                time.sleep(self.camera_discovery_interval)
+                
+                # Get current camera list from database
+                new_cameras = self.auto_detect_cameras()
+                
+                # Check for new cameras not in current list
+                for camera_name, camera_info in new_cameras.items():
+                    if camera_name not in self.camera_urls:
+                        # New camera detected!
+                        print(f"\n🆕 NEW CAMERA DETECTED: {camera_name}")
+                        self.camera_urls[camera_name] = camera_info
+                        
+                        # Get AI mode
+                        ai_mode = camera_info.get('ai_mode', 'both') if isinstance(camera_info, dict) else 'both'
+                        
+                        # Initialize tracker and activity analyzer for new camera
+                        self.person_trackers[camera_name] = PersonTracker(
+                            tracker_type='KCF',
+                            max_tracks=20,
+                            track_timeout=5.0
+                        )
+                        self.activity_analyzers[camera_name] = SuspiciousActivityAnalyzer(
+                            loitering_threshold=30.0,
+                            abandoned_object_threshold=60.0,
+                            speed_threshold=150.0,
+                            crowd_threshold=5
+                        )
+                        
+                        # Add default detection zone
+                        default_zone = DetectionZone(
+                            name=f"{camera_name}_main_area",
+                            points=[(0, 0), (1920, 0), (1920, 1080), (0, 1080)],
+                            zone_type="monitored",
+                            activity_types=[
+                                ActivityType.LOITERING,
+                                ActivityType.ZONE_INTRUSION,
+                                ActivityType.RUNNING,
+                                ActivityType.ABANDONED_OBJECT,
+                                ActivityType.WEAPON_DETECTED
+                            ]
+                        )
+                        self.activity_analyzers[camera_name].add_detection_zone(default_zone)
+                        
+                        # Store AI mode in detection stats
+                        self.detection_stats[camera_name] = {
+                            'ai_mode': ai_mode,
+                            'detections': 0,
+                            'alerts': 0
+                        }
+                        
+                        # Start surveillance on new camera
+                        self.start_camera_surveillance(camera_name)
+                        print(f"✅ Started surveillance on new camera: {camera_name}")
+                        print(f"   🤖 AI Mode: {ai_mode.upper()}")
+                
+                # Check for removed cameras
+                for camera_name in list(self.camera_urls.keys()):
+                    if camera_name not in new_cameras:
+                        print(f"\n🔴 CAMERA REMOVED: {camera_name}")
+                        self.stop_camera_surveillance(camera_name)
+                        del self.camera_urls[camera_name]
+                        
+            except Exception as e:
+                print(f"⚠️ Camera discovery error: {e}")
+                
+    def stop_camera_discovery(self):
+        """Stop automatic camera discovery"""
+        self.discovery_running = False
+        if self.discovery_thread:
+            self.discovery_thread.join(timeout=2)
+        print("🛑 Auto-discovery stopped")
     
     def run(self, host='0.0.0.0', port=8001):
         """Run the multi-camera surveillance system"""
