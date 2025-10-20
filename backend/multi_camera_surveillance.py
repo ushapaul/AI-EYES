@@ -146,7 +146,10 @@ class MultiCameraAISurveillance:
                                 try:
                                     response = requests.head(camera_url, timeout=2)
                                     if response.status_code in [200, 302]:
-                                        cameras[camera_name] = camera_url
+                                        cameras[camera_name] = {
+                                            'url': camera_url,
+                                            'ai_mode': cam.get('ai_mode', 'both')
+                                        }
                                         print(f"✅ {camera_name}: {camera_url}")
                                 except:
                                     print(f"❌ {camera_name}: {camera_url} (not accessible)")
@@ -736,8 +739,8 @@ class MultiCameraAISurveillance:
         # Get AI mode for this camera
         ai_mode = self.detection_stats.get(camera_name, {}).get('ai_mode', 'both')
         
-        # ULTRA Performance optimization: Skip even more frames to eliminate lag (process every 10th frame)
-        if frame_count % 10 != 0:
+        # Performance optimization: Process every 3rd frame for faster detection
+        if frame_count % 3 != 0:
             # Return cached detection data for skipped frames
             if camera_name in self.latest_frames:
                 cached_data = self.latest_frames[camera_name].copy()
@@ -759,6 +762,9 @@ class MultiCameraAISurveillance:
         
         if ai_mode in ['yolov9', 'both']:
             # Object Detection on much smaller frame
+            print(f"{'='*60}")
+            print(f"🤖 [{camera_name}] YOLOv9 Detection Running...")
+            print(f"{'='*60}")
             detections = self.detector.detect(small_frame)
             
             # Scale detection coordinates back to original frame size (adjusted for 0.3 scale)
@@ -906,14 +912,16 @@ class MultiCameraAISurveillance:
                 self.frame_counters[camera_name] = 0
             
             self.frame_counters[camera_name] += 1
-            print(f"🔧 DEBUG: Frame counter for {camera_name}: {self.frame_counters[camera_name]}")
+            print(f"{'='*60}")
+            print(f"🎥 [{camera_name}] Frame counter: {self.frame_counters[camera_name]}")
+            print(f"{'='*60}")
             
-            # Run face recognition when person is detected OR every 5th frame
+            # Run face recognition when person is detected OR every 3rd frame (same as YOLOv9)
             run_face_recognition = False
             if person_count > 0:
                 run_face_recognition = True
                 print(f"🔧 DEBUG: Running face detection - person detected on frame {self.frame_counters[camera_name]}")
-            elif self.frame_counters[camera_name] % 5 == 0:
+            elif self.frame_counters[camera_name] % 3 == 0:
                 run_face_recognition = True
                 print(f"🔧 DEBUG: Running face detection - scheduled frame {self.frame_counters[camera_name]}")
             
@@ -975,10 +983,13 @@ class MultiCameraAISurveillance:
                     if len(authorized_faces) > 0:
                         alert_message += f" (Authorized personnel also present: {', '.join(set(authorized_faces))})"
                     
+                    # Get average confidence of intruder detections
+                    avg_confidence = sum(face['confidence'] for face in intruder_faces) / len(intruder_faces) if intruder_faces else 0.0
+                    
                     self.alert_manager.send_intruder_alert(
                         person_name="unknown",
                         camera_id=camera_name,
-                        confidence=0.0,
+                        confidence=avg_confidence,
                         image_path=snapshot_path
                     )
                     
@@ -1129,6 +1140,9 @@ class MultiCameraAISurveillance:
         
         # Create annotated frame
         annotated_frame = self.create_annotated_frame(frame, detections, activities, camera_name)
+        
+        # Add blank line after each camera's processing
+        print()
         
         return {
             'original_frame': frame,

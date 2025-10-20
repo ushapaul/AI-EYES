@@ -710,13 +710,14 @@ def create_app():
                 
                 # Prepare alert data for email with escalation info
                 alert_data = {
-                    'type': alert.get('type', 'security_breach'),
+                    'type': alert.get('type', 'intruder'),
                     'location': alert.get('location', alert.get('camera_id', 'Unknown')),
-                    'timestamp': alert.get('timestamp', datetime.utcnow()).isoformat(),
+                    'timestamp': alert.get('timestamp', datetime.utcnow()).isoformat() if isinstance(alert.get('timestamp'), datetime) else str(alert.get('timestamp', datetime.utcnow())),
                     'severity': alert.get('severity', 'high'),
-                    'confidence': alert.get('confidence', 0.95),
+                    'confidence': float(alert.get('confidence', 95.0)),  # Ensure it's a number
                     'camera_id': alert.get('camera_id', 'Unknown'),
-                    'image_path': alert.get('image_path'),
+                    'camera': alert.get('camera_id', 'Unknown'),  # Add camera field
+                    'image_path': alert.get('image_path', ''),  # Empty string if no image
                     'description': alert.get('message', 'Unauthorized person detected'),
                     'escalated': True,  # Mark as manually escalated
                     'escalated_to': recipient_name,  # Who received this escalation
@@ -740,7 +741,9 @@ def create_app():
                         'email': recipient_email
                     }
                 else:
-                    return {'status': 'error', 'error': 'Failed to send email'}, 500
+                    print(f"❌ Email send failed for alert {alert_id}")
+                    print(f"   Alert data: {alert_data}")
+                    return {'status': 'error', 'errors': 'Failed to send email'}, 500
             except ImportError as e:
                 print(f"Import error: {e}")
                 return {'status': 'error', 'error': 'Email service not configured'}, 500
