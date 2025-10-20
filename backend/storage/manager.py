@@ -109,75 +109,121 @@ class StorageManager:
     
     def capture_from_ip_camera(self, camera_url: str, camera_id: str, 
                               username: str = "", password: str = "") -> Optional[str]:
-        """Capture image from IP camera"""
+        """Capture image from IP camera - Fast snapshot method"""
         try:
-            # Try different URL formats for IP cameras
-            possible_urls = [
-                camera_url,
-                f"{camera_url}/shot.jpg",
-                f"{camera_url}/image.jpg",
-                f"{camera_url}/snapshot.jpg",
-                f"{camera_url.replace('/video', '/shot.jpg')}"
-            ]
+            print(f"📸 Fast snapshot from: {camera_url}")
             
-            for url in possible_urls:
+            # For IP Webcam, directly use /shot.jpg which is instant
+            # Try most likely URLs first with shorter timeout
+            snapshot_urls = []
+            
+            if '/video' in camera_url:
+                # Replace /video with /shot.jpg for IP Webcam
+                snapshot_urls.append(camera_url.replace('/video', '/shot.jpg'))
+            
+            # Add other common snapshot endpoints
+            base_url = camera_url.rstrip('/video').rstrip('/')
+            snapshot_urls.extend([
+                f"{base_url}/shot.jpg",
+                f"{base_url}/snapshot.jpg",
+                f"{base_url}/image.jpg",
+                camera_url  # Original URL as fallback
+            ])
+            
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_urls = []
+            for url in snapshot_urls:
+                if url not in seen:
+                    seen.add(url)
+                    unique_urls.append(url)
+            
+            # Try each URL with short timeout (2 seconds max)
+            for url in unique_urls:
                 try:
+                    print(f"  🔍 Trying: {url}")
+                    
                     # Setup authentication if provided
                     auth = None
                     if username and password:
                         auth = (username, password)
                     
-                    response = requests.get(url, auth=auth, timeout=10)
+                    # Use shorter timeout for faster response
+                    response = requests.get(url, auth=auth, timeout=2, stream=False)
                     
-                    if response.status_code == 200 and 'image' in response.headers.get('content-type', ''):
-                        # Save the image
-                        return self.save_snapshot(camera_id, response.content)
+                    if response.status_code == 200:
+                        content_type = response.headers.get('content-type', '')
+                        if 'image' in content_type or len(response.content) > 1000:
+                            # Got an image, save it
+                            print(f"  ✅ Snapshot captured from: {url}")
+                            return self.save_snapshot(camera_id, response.content)
                     
-                except requests.RequestException:
+                except requests.RequestException as e:
+                    print(f"  ⏭️  Skipping {url}: {str(e)[:50]}")
                     continue
             
-            # If IP camera capture fails, try using OpenCV
-            return self.capture_with_opencv(camera_url, camera_id)
+            # If all direct methods fail, try OpenCV as last resort (but with timeout)
+            print(f"  🔄 Trying OpenCV capture...")
+            return self.capture_with_opencv_fast(camera_url, camera_id)
             
         except Exception as e:
             print(f"❌ Error capturing from IP camera {camera_id}: {e}")
             return None
     
-    def capture_with_opencv(self, camera_url: str, camera_id: str) -> Optional[str]:
-        """Capture image using OpenCV"""
+    def capture_with_opencv_fast(self, camera_url: str, camera_id: str, timeout_seconds: int = 5) -> Optional[str]:
+        """Capture image using OpenCV with timeout"""
         if not OPENCV_AVAILABLE:
             print("❌ OpenCV not available for camera capture")
             return None
             
         try:
-            # Convert URL for OpenCV if needed
-            if camera_url == "0":
-                cap = cv2.VideoCapture(0)  # Default webcam
+            import threading
+            import time
+            
+            result = {'frame': None, 'success': False}
+            
+            def capture_frame():
+                try:
+                    # Convert URL for OpenCV if needed
+                    if camera_url == "0" or camera_url == "0/video":
+                        cap = cv2.VideoCapture(0)  # Default webcam
+                    else:
+                        cap = cv2.VideoCapture(camera_url)
+                    
+                    if cap.isOpened():
+                        # Read a frame
+                        ret, frame = cap.read()
+                        if ret:
+                            result['frame'] = frame
+                            result['success'] = True
+                    
+                    cap.release()
+                except Exception as e:
+                    print(f"  ⚠️ OpenCV capture error: {e}")
+            
+            # Run capture in thread with timeout
+            capture_thread = threading.Thread(target=capture_frame)
+            capture_thread.daemon = True
+            capture_thread.start()
+            capture_thread.join(timeout=timeout_seconds)
+            
+            if result['success'] and result['frame'] is not None:
+                # Encode frame to JPEG
+                _, buffer = cv2.imencode('.jpg', result['frame'])
+                image_data = buffer.tobytes()
+                print(f"  ✅ OpenCV snapshot captured")
+                return self.save_snapshot(camera_id, image_data)
             else:
-                cap = cv2.VideoCapture(camera_url)
-            
-            if not cap.isOpened():
-                print(f"❌ Could not open camera: {camera_url}")
-                return None
-            
-            # Capture frame
-            ret, frame = cap.read()
-            cap.release()
-            
-            if ret:
-                # Convert to bytes
-                _, buffer = cv2.imencode('.jpg', frame)
-                image_bytes = buffer.tobytes()
-                
-                # Save the image
-                return self.save_snapshot(camera_id, image_bytes)
-            else:
-                print(f"❌ Could not capture frame from camera: {camera_url}")
+                print(f"  ❌ OpenCV capture timeout or failed")
                 return None
                 
         except Exception as e:
             print(f"❌ Error with OpenCV capture: {e}")
             return None
+    
+    def capture_with_opencv(self, camera_url: str, camera_id: str) -> Optional[str]:
+        """Legacy OpenCV capture - redirects to fast version"""
+        return self.capture_with_opencv_fast(camera_url, camera_id)
     
     def resize_image(self, image_path: str, max_width: int = 1920, 
                     max_height: int = 1080) -> str:

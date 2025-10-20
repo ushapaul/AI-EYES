@@ -207,10 +207,15 @@ def create_app():
     def capture_snapshot(camera_id):
         """Capture snapshot from camera"""
         try:
+            print(f"📸 Snapshot request for camera: {camera_id}")
+            
             # Get camera details
             camera = camera_model.find_by_id(camera_id)
             if not camera:
+                print(f"❌ Camera not found: {camera_id}")
                 return {'error': 'Camera not found'}, 404
+            
+            print(f"📸 Capturing from camera: {camera['name']} ({camera['url']})")
             
             # Capture image from camera
             image_path = storage_manager.capture_from_ip_camera(
@@ -221,6 +226,8 @@ def create_app():
             )
             
             if image_path:
+                print(f"✅ Snapshot captured successfully: {image_path}")
+                
                 # Create log entry
                 log_model.create_log(
                     camera_id=camera_id,
@@ -228,15 +235,23 @@ def create_app():
                     description=f"Snapshot captured from camera '{camera['name']}'"
                 )
                 
+                # Extract filename from path
+                filename = os.path.basename(image_path)
+                
                 return {
                     'success': True,
                     'message': 'Snapshot captured successfully',
-                    'image_path': image_path
+                    'image_path': image_path,
+                    'image_url': f'/api/storage/snapshot/{filename}'
                 }
             else:
-                return {'error': 'Failed to capture snapshot'}, 500
+                print(f"❌ Failed to capture snapshot from camera: {camera['name']}")
+                return {'error': 'Failed to capture snapshot. Camera might be offline or inaccessible.'}, 500
                 
         except Exception as e:
+            print(f"❌ Snapshot error: {e}")
+            import traceback
+            traceback.print_exc()
             return {'error': str(e)}, 500
     
     # Recording management - Global storage for active recordings
@@ -476,6 +491,32 @@ def create_app():
             
         except Exception as e:
             return {'error': str(e)}, 500
+    
+    @app.route('/api/storage/snapshot/<path:filename>')
+    def serve_snapshot(filename):
+        """Serve snapshot image file"""
+        try:
+            from flask import send_from_directory
+            
+            # Try storage/snapshots directory first
+            snapshots_dir = os.path.join('storage', 'snapshots')
+            if os.path.exists(os.path.join(snapshots_dir, filename)):
+                return send_from_directory(snapshots_dir, filename)
+            
+            # Try storage/unknown_persons directory
+            unknown_dir = os.path.join('storage', 'unknown_persons')
+            if os.path.exists(os.path.join(unknown_dir, filename)):
+                return send_from_directory(unknown_dir, filename)
+            
+            # Try storage directory root
+            storage_dir = 'storage'
+            if os.path.exists(os.path.join(storage_dir, filename)):
+                return send_from_directory(storage_dir, filename)
+            
+            return {'error': 'Snapshot not found'}, 404
+            
+        except Exception as e:
+            return {'error': str(e)}, 404
     
     @app.route('/api/camera/<camera_id>/delete', methods=['DELETE'])
     def delete_camera(camera_id):
