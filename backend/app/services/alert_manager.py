@@ -150,16 +150,29 @@ class AlertManager:
         # Only intruder alerts are sent now
         return None
     
-    def send_suspicious_activity_alert(self, activity_type, camera_id, confidence, image_path=None):
+    def send_suspicious_activity_alert(self, activity_type, camera_id, confidence, image_path=None, details=None):
         """Send suspicious activity alert"""
+        # Map activity types to email types
+        type_mapping = {
+            'crowd_formation': 'crowd_formation',
+            'abandoned_object': 'suspicious_activity',
+            'loitering': 'suspicious_activity',
+            'unauthorized_entry': 'intruder',
+        }
+        
+        email_type = type_mapping.get(activity_type, 'suspicious_activity')
+        
         alert_data = {
-            'type': 'suspicious_activity',
-            'description': f"Suspicious activity detected: {activity_type}",
+            'type': email_type,
+            'description': f"Suspicious activity detected: {activity_type.replace('_', ' ').title()}",
             'location': f"Camera {camera_id}",
             'camera_id': camera_id,
-            'confidence': confidence * 100,
+            'confidence': confidence * 100 if confidence <= 1.0 else confidence,
             'activity_type': activity_type
         }
+        
+        if details:
+            alert_data['details'] = details
         
         if image_path and os.path.exists(image_path):
             alert_data['image_path'] = image_path

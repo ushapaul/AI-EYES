@@ -1115,6 +1115,17 @@ class MultiCameraAISurveillance:
         
         # Crowd detection (always alert for large groups regardless of authorization)
         if person_count > 3:
+            # Save crowd snapshot
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            snapshot_filename = f"crowd_alert_{camera_name}_{timestamp}.jpg"
+            snapshot_path = os.path.join("storage", "snapshots", snapshot_filename)
+            
+            # Create directory if it doesn't exist
+            os.makedirs(os.path.dirname(snapshot_path), exist_ok=True)
+            
+            # Save the full frame as snapshot
+            cv2.imwrite(snapshot_path, frame)
+            
             activity = {
                 'type': 'crowd',
                 'description': f'CROWD ALERT: {person_count} persons detected',
@@ -1123,6 +1134,19 @@ class MultiCameraAISurveillance:
             }
             activities.append(activity)
             self.alert_count += 1
+            
+            # Send crowd alert email
+            try:
+                self.alert_manager.send_suspicious_activity_alert(
+                    activity_type='crowd_formation',
+                    camera_id=camera_name,
+                    confidence=0.95,
+                    image_path=snapshot_path,
+                    details={'person_count': person_count}
+                )
+                print(f"📧 Crowd alert email sent: {person_count} persons detected")
+            except Exception as e:
+                print(f"❌ Failed to send crowd alert email: {e}")
         
         if person_count == 0 and len(bags) > 0:
             # Save abandoned object snapshot

@@ -3,8 +3,74 @@ from flask_cors import CORS
 from flask_socketio import SocketIO
 import os
 import sys
+import logging
+import warnings
 from datetime import datetime
 from dotenv import load_dotenv
+
+# Aggressive suppression of ConnectionAbortedError tracebacks
+import traceback as tb_module
+import sys as sys_module
+import io
+
+# Patch traceback.print_exception to filter out connection errors
+_original_print_exception = tb_module.print_exception
+
+def _silent_print_exception(etype, value, tb, limit=None, file=None, chain=True):
+    """Suppress ConnectionAbortedError and BrokenPipeError tracebacks"""
+    if etype in (ConnectionAbortedError, BrokenPipeError, OSError):
+        # Check if it's WinError 10053 (connection aborted)
+        if hasattr(value, 'winerror') and value.winerror == 10053:
+            return  # Silently ignore
+        if 'connection' in str(value).lower() or 'aborted' in str(value).lower():
+            return  # Silently ignore
+    # Print all other exceptions normally
+    _original_print_exception(etype, value, tb, limit, file, chain)
+
+# Monkey-patch traceback module GLOBALLY
+tb_module.print_exception = _silent_print_exception
+
+# Also patch format_exception to stop traceback strings from being created
+_original_format_exception = tb_module.format_exception
+
+def _silent_format_exception(etype, value, tb, limit=None, chain=True):
+    """Suppress formatting of connection error tracebacks"""
+    if etype in (ConnectionAbortedError, BrokenPipeError, OSError):
+        if hasattr(value, 'winerror') and value.winerror == 10053:
+            return []  # Return empty list
+        if 'connection' in str(value).lower() or 'aborted' in str(value).lower():
+            return []  # Return empty list
+    return _original_format_exception(etype, value, tb, limit, chain)
+
+tb_module.format_exception = _silent_format_exception
+
+# Patch sys.excepthook
+sys_module.excepthook = lambda exc_type, exc_value, exc_traceback: (
+    None if exc_type in (ConnectionAbortedError, BrokenPipeError) else
+    _original_print_exception(exc_type, exc_value, exc_traceback)
+)
+
+# Also patch print_exc which is commonly used
+_original_print_exc = tb_module.print_exc
+
+def _silent_print_exc(limit=None, file=None, chain=True):
+    """Suppress connection error tracebacks in print_exc"""
+    exc_type, exc_value, exc_tb = sys_module.exc_info()
+    if exc_type in (ConnectionAbortedError, BrokenPipeError, OSError):
+        if exc_value and hasattr(exc_value, 'winerror') and getattr(exc_value, 'winerror') == 10053:
+            return  # Silently ignore
+        if exc_value and ('connection' in str(exc_value).lower() or 'aborted' in str(exc_value).lower()):
+            return  # Silently ignore
+    _original_print_exc(limit, file, chain)
+
+tb_module.print_exc = _silent_print_exc
+
+# Suppress all warnings and eventlet logging
+warnings.filterwarnings('ignore')
+logging.getLogger('eventlet.wsgi.server').setLevel(logging.CRITICAL)
+logging.getLogger('eventlet.wsgi').setLevel(logging.CRITICAL)
+logging.getLogger('eventlet.hubs').setLevel(logging.CRITICAL)
+logging.getLogger('eventlet').setLevel(logging.CRITICAL)
 
 # Load environment variables
 load_dotenv()
@@ -290,6 +356,10 @@ def create_app():
                 """Thread function to record video"""
                 try:
                     camera_url = camera.get('url')
+                    if not camera_url:
+                        print(f"Failed to start recording: No URL for camera {camera_id}")
+                        return
+                    
                     cap = cv2.VideoCapture(camera_url)
                     
                     if not cap.isOpened():
@@ -297,12 +367,12 @@ def create_app():
                         return
                     
                     # Get video properties
-                    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                    fps = int(cap.get(cv2.CAP_PROP_FPS)) or 20  # Default to 20 if not available
+                    frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 640)
+                    frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 480)
+                    fps = int(cap.get(cv2.CAP_PROP_FPS) or 20)  # Default to 20 if not available
                     
                     # Use MJPG codec - more reliable and plays in most browsers
-                    fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+                    fourcc = cv2.VideoWriter.fourcc(*'MJPG')  # type: ignore
                     out = cv2.VideoWriter(filepath, fourcc, fps, (frame_width, frame_height))
                     
                     print(f"📹 Started recording {camera['name']} to {filepath}")
@@ -425,7 +495,7 @@ def create_app():
             recordings_dir = os.path.join('storage', 'recordings')
             
             if not os.path.exists(recordings_dir):
-                return []
+                return {'recordings': [], 'total': 0}
             
             recordings = []
             for filename in os.listdir(recordings_dir):
@@ -433,9 +503,32 @@ def create_app():
                     filepath = os.path.join(recordings_dir, filename)
                     file_stats = os.stat(filepath)
                     
+                    # Parse camera name and timestamp from filename
+                    # Format: CameraName_YYYYMMDD_HHMMSS.avi
+                    parts = filename.rsplit('_', 2)
+                    camera_name = parts[0] if len(parts) >= 3 else 'Unknown'
+                    
+                    # Try to get camera location from database
+                    location = ''
+                    try:
+                        camera = camera_model.find_by_name(camera_name)
+                        if camera:
+                            location = camera.get('location', '')
+                    except:
+                        pass
+                    
+                    # Calculate duration (file size / approximate bitrate)
+                    size_mb = file_stats.st_size / (1024 * 1024)
+                    duration_estimate = f"{int(size_mb * 0.5)}s"  # Rough estimate
+                    
                     recordings.append({
                         'filename': filename,
+                        'camera_name': camera_name,
+                        'location': location,
                         'size': file_stats.st_size,
+                        'size_mb': f"{size_mb:.1f} MB",
+                        'duration': duration_estimate,
+                        'timestamp': datetime.fromtimestamp(file_stats.st_ctime).strftime('%Y-%m-%d %H:%M:%S'),
                         'created': datetime.fromtimestamp(file_stats.st_ctime).isoformat(),
                         'url': f'http://localhost:{PORT}/api/storage/recording/{filename}'
                     })
@@ -443,10 +536,11 @@ def create_app():
             # Sort by creation time (newest first)
             recordings.sort(key=lambda x: x['created'], reverse=True)
             
-            return recordings
+            return {'recordings': recordings, 'total': len(recordings)}
             
         except Exception as e:
-            return {'error': str(e)}, 500
+            print(f"Error listing recordings: {e}")
+            return {'error': str(e), 'recordings': [], 'total': 0}, 500
     
     @app.route('/api/storage/recording/<path:filename>')
     def serve_recording(filename):
@@ -482,7 +576,20 @@ def create_app():
                     return {'error': 'Cannot delete recording that is currently in progress'}, 400
             
             # Delete the file
-            os.remove(filepath)
+            try:
+                os.remove(filepath)
+            except PermissionError:
+                return {
+                    'error': 'File is currently in use. Please close the video player and try again.',
+                    'details': 'The recording cannot be deleted while it is being played or accessed.'
+                }, 423  # 423 Locked
+            except OSError as e:
+                if 'being used by another process' in str(e).lower():
+                    return {
+                        'error': 'File is currently in use. Please close the video player and try again.',
+                        'details': 'The recording cannot be deleted while it is being played or accessed.'
+                    }, 423
+                raise  # Re-raise if it's a different OSError
             
             return {
                 'success': True,
@@ -490,7 +597,8 @@ def create_app():
             }
             
         except Exception as e:
-            return {'error': str(e)}, 500
+            print(f"❌ Error deleting recording {filename}: {str(e)}")  # Log the error
+            return {'error': f'Failed to delete recording: {str(e)}'}, 500
     
     @app.route('/api/storage/snapshot/<path:filename>')
     def serve_snapshot(filename):
@@ -1139,25 +1247,76 @@ if __name__ == '__main__':
     try:
         from app.services.camera_discovery import CameraDiscovery
         camera_discovery = CameraDiscovery()
-        print("🔍 Camera discovery service initialized")
         
         # Only start status monitoring (no auto-scan)
         # Users can manually scan via API: POST /api/camera/scan
         if hasattr(camera_discovery, 'start_status_monitor'):
             camera_discovery.start_status_monitor(interval=30)  # Check status every 30 seconds
-            print("🚀 Camera status monitoring started (interval: 30s)")
+            print("🚀 Background monitoring: Active (30s interval)")
         
-        print("✅ Camera discovery ready (manual scan only)")
-        print(f"📡 To scan: POST http://localhost:{PORT}/api/camera/scan")
+        print(f"📡 Manual scan: POST http://localhost:{PORT}/api/camera/scan")
     except Exception as e:
         print(f"⚠️ Could not start camera discovery: {e}")
     
     print("=" * 50)
     
+    # Nuclear option: Patch eventlet WSGI to completely suppress ConnectionAbortedError
+    try:
+        import eventlet.wsgi
+        import io
+        
+        # Store the original handle_one_response method
+        _original_handle = eventlet.wsgi.HttpProtocol.handle_one_response
+        
+        def _silent_handle_one_response(self):
+            """Completely suppress ConnectionAbortedError tracebacks"""
+            # Temporarily redirect stderr to suppress traceback printing
+            import sys
+            original_stderr = sys.stderr
+            
+            try:
+                # Call original handler
+                return _original_handle(self)
+            except (ConnectionAbortedError, BrokenPipeError) as e:
+                # Silently swallow connection errors - these are browser optimizations, not real errors
+                pass
+            except OSError as e:
+                # Check for WinError 10053 (connection aborted)
+                if hasattr(e, 'winerror') and e.winerror == 10053:
+                    pass  # Silently ignore
+                else:
+                    # Temporarily suppress stderr for this traceback print
+                    sys.stderr = io.StringIO()
+                    try:
+                        raise  # Let eventlet print to our dummy stderr
+                    finally:
+                        sys.stderr = original_stderr
+            except Exception:
+                # All other exceptions are printed normally
+                raise
+            finally:
+                # Always restore stderr
+                sys.stderr = original_stderr
+        
+        # Monkey-patch the method
+        eventlet.wsgi.HttpProtocol.handle_one_response = _silent_handle_one_response
+        
+        print("✅ Error suppression active - console will be clean")
+    except Exception as e:
+        print(f"⚠️ Could not patch eventlet: {e}")
+    
     try:
         socketio.run(app, debug=DEBUG, host=HOST, port=PORT)
     except KeyboardInterrupt:
-        print("\nShutting down AI Eyes Security System...")
+        print("\n✅ Shutting down AI Eyes Security System...")
+    except OSError as e:
+        if e.winerror == 10048:
+            print(f"\n❌ Port {PORT} is already in use!")
+            print(f"💡 Either:")
+            print(f"   1. Stop the other server running on port {PORT}")
+            print(f"   2. Change PORT in .env file")
+        else:
+            print(f"❌ Error starting server: {e}")
     except Exception as e:
         print(f"Error starting server: {e}")
         print(f"Make sure port {PORT} is not already in use.")

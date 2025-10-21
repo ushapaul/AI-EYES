@@ -7,6 +7,7 @@ for suspicious activities detected by the surveillance system
 import smtplib
 import cv2
 import os
+import sys
 import time
 import json
 from email.mime.multipart import MIMEMultipart
@@ -22,6 +23,11 @@ import threading
 import queue
 
 from .activity_analyzer import SuspiciousActivity, ThreatLevel, ActivityType
+
+# Add backend directory to path for imports
+backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
 
 logger = logging.getLogger(__name__)
 
@@ -285,9 +291,8 @@ class AlertManager:
             alert_data: Alert data dictionary
         """
         try:
-            # Send email notification
-            if self.alert_emails and self.email_user and self.email_password:
-                self._send_email_alert(alert_data)
+            # Send email notification (always try, SendGrid will be used if available)
+            self._send_email_alert(alert_data)
             
             # Database logging
             if self.database_callback:
@@ -310,12 +315,71 @@ class AlertManager:
     
     def _send_email_alert(self, alert_data: Dict):
         """
-        Send email alert
+        Send email alert using SendGrid
         
         Args:
             alert_data: Alert data dictionary
         """
         try:
+            # Try to use SendGrid service first
+            try:
+                from app.services.email_service import EmailAlertService
+                
+                email_service = EmailAlertService()
+                
+                # Map activity_type to alert type for email service
+                activity_type = alert_data.get('activity_type', '').lower()
+                
+                # Map activity types to email template types
+                type_mapping = {
+                    'crowd_formation': 'multiple_persons',
+                    'loitering': 'suspicious_activity',
+                    'unauthorized_entry': 'intruder',
+                    'suspicious_object': 'suspicious_activity',
+                    'unusual_movement': 'suspicious_activity',
+                    'intruder': 'intruder',
+                    'weapon': 'weapon_detected',
+                    'armed_threat': 'armed_threat'
+                }
+                
+                email_type = type_mapping.get(activity_type, 'suspicious_activity')
+                
+                # Prepare alert data for email service
+                email_alert_data = {
+                    'type': email_type,
+                    'activity_type': activity_type,
+                    'location': alert_data.get('location', 'Unknown'),
+                    'timestamp': alert_data.get('timestamp', datetime.now().isoformat()),
+                    'severity': alert_data.get('severity', 'medium'),
+                    'confidence': float(alert_data.get('confidence', 0)),
+                    'camera_id': alert_data.get('camera_id', 'Unknown'),
+                    'camera': alert_data.get('camera_id', 'Unknown'),
+                    'image_path': alert_data.get('snapshot_path', ''),
+                    'description': alert_data.get('description', f"{activity_type.replace('_', ' ').title()} detected"),
+                    'details': alert_data.get('details', {})
+                }
+                
+                # Send email using SendGrid
+                success = email_service.send_alert(email_alert_data)
+                
+                if success:
+                    self.stats['emails_sent'] += 1
+                    logger.info(f"✅ SendGrid email sent for {activity_type}")
+                    return
+                else:
+                    logger.warning(f"⚠️ SendGrid email failed, trying SMTP fallback...")
+                    
+            except ImportError as e:
+                logger.warning(f"⚠️ SendGrid service not available: {e}, using SMTP fallback...")
+            except Exception as e:
+                logger.error(f"❌ SendGrid error: {e}, using SMTP fallback...")
+            
+            # Fallback to SMTP if SendGrid fails or is not available
+            if not self.email_user or not self.email_password or not self.alert_emails:
+                logger.warning("⚠️ Email credentials not configured, skipping SMTP fallback")
+                self.stats['email_failures'] += 1
+                return
+            
             # Create message
             msg = MIMEMultipart()
             msg['From'] = self.email_user
@@ -335,7 +399,7 @@ class AlertManager:
                                    f'attachment; filename="alert_snapshot.jpg"')
                     msg.attach(image)
             
-            # Send email
+            # Send email via SMTP
             server = smtplib.SMTP(self.smtp_server, self.smtp_port)
             server.starttls()
             server.login(self.email_user, self.email_password)
@@ -345,11 +409,11 @@ class AlertManager:
             server.quit()
             
             self.stats['emails_sent'] += 1
-            logger.info(f"Email alert sent to {len(self.alert_emails)} recipients")
+            logger.info(f"📧 SMTP email alert sent to {len(self.alert_emails)} recipients")
             
         except Exception as e:
             self.stats['email_failures'] += 1
-            logger.error(f"Email sending failed: {e}")
+            logger.error(f"❌ Email sending failed: {e}")
     
     def _create_email_body(self, alert_data: Dict) -> str:
         """

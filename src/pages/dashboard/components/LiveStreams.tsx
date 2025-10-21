@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import ProtectedCameraManager from './ProtectedCameraManager';
 
 interface Camera {
@@ -32,9 +32,49 @@ export default function LiveStreams({ cameras: propCameras, onRefreshCameras }: 
     password: '',
     ai_mode: 'both' as 'face_recognition' | 'yolov9' | 'both'
   });
+  
+  // Recording state management
+  const [recordingCameras, setRecordingCameras] = useState<Set<string | number>>(new Set());
+  const [recordingStartTimes, setRecordingStartTimes] = useState<Map<string | number, number>>(new Map());
+  const [recordingDurations, setRecordingDurations] = useState<Map<string | number, string>>(new Map());
+  
+  // Modals state
+  const [showSnapshotModal, setShowSnapshotModal] = useState(false);
+  const [snapshotData, setSnapshotData] = useState<{url: string, path: string} | null>(null);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [settingsCamera, setSettingsCamera] = useState<Camera | null>(null);
+  const [showRecordingsModal, setShowRecordingsModal] = useState(false);
+  const [recordings, setRecordings] = useState<any[]>([]);
+  const [loadingRecordings, setLoadingRecordings] = useState(false);
 
   // Use only prop cameras (from API), no mock data
   const cameras = propCameras || [];
+
+  // Sync recording status on mount and when cameras change
+  useEffect(() => {
+    const syncRecordingStatus = async () => {
+      for (const camera of cameras) {
+        try {
+          const response = await fetch(`http://localhost:8000/api/camera/${camera.id}/recording-status`);
+          if (response.ok) {
+            const status = await response.json();
+            // Backend returns 'is_recording' not 'recording'
+            if (status.is_recording || status.recording) {
+              // Update state to show this camera is recording
+              setRecordingCameras(prev => new Set(prev).add(camera.id));
+              setRecordingStartTimes(prev => new Map(prev).set(camera.id, Date.now()));
+            }
+          }
+        } catch (error) {
+          console.error(`Failed to check recording status for camera ${camera.id}:`, error);
+        }
+      }
+    };
+
+    if (cameras.length > 0) {
+      syncRecordingStatus();
+    }
+  }, [cameras]);
 
   const handleAddCamera = () => {
     setShowAddCameraModal(true);
@@ -126,7 +166,12 @@ export default function LiveStreams({ cameras: propCameras, onRefreshCameras }: 
 
       if (response.ok) {
         const result = await response.json();
-        alert(`Snapshot captured successfully! Saved to: ${result.image_path}`);
+        // Show snapshot preview modal
+        setSnapshotData({
+          url: `http://localhost:8000${result.image_url}`,
+          path: result.image_path
+        });
+        setShowSnapshotModal(true);
       } else {
         const error = await response.json();
         alert(`Failed to capture snapshot: ${error.error || 'Unknown error'}`);
@@ -134,6 +179,178 @@ export default function LiveStreams({ cameras: propCameras, onRefreshCameras }: 
     } catch (error) {
       console.error('Error taking snapshot:', error);
       alert('Error capturing snapshot. Please check your connection and try again.');
+    }
+  };
+
+  const handleRecording = async (cameraId: string | number) => {
+    try {
+      // Check current recording status first
+      const statusResponse = await fetch(`http://localhost:8000/api/camera/${cameraId}/recording-status`);
+      
+      if (!statusResponse.ok) {
+        alert('Failed to check recording status');
+        return;
+      }
+      
+      const status = await statusResponse.json();
+      
+      // Backend returns 'is_recording' not 'recording'
+      if (status.is_recording || status.recording) {
+        // Camera is recording - STOP it
+        const stopResponse = await fetch(`http://localhost:8000/api/camera/${cameraId}/stop-recording`, {
+          method: 'POST',
+        });
+        
+        if (stopResponse.ok) {
+          const result = await stopResponse.json();
+          
+          // Update recording state - REMOVE from recording
+          setRecordingCameras(prev => {
+            const updated = new Set(prev);
+            updated.delete(cameraId);
+            return updated;
+          });
+          setRecordingStartTimes(prev => {
+            const updated = new Map(prev);
+            updated.delete(cameraId);
+            return updated;
+          });
+          setRecordingDurations(prev => {
+            const updated = new Map(prev);
+            updated.delete(cameraId);
+            return updated;
+          });
+          
+          alert(`Recording stopped! Video saved to: ${result.filename}`);
+        } else {
+          const error = await stopResponse.json();
+          console.error('Failed to stop recording:', error);
+          alert(`Failed to stop recording: ${error.error || 'Unknown error'}`);
+        }
+      } else {
+        // Camera is NOT recording - START it
+        const startResponse = await fetch(`http://localhost:8000/api/camera/${cameraId}/start-recording`, {
+          method: 'POST',
+        });
+        
+        if (startResponse.ok) {
+          // Update recording state - ADD to recording
+          setRecordingCameras(prev => new Set(prev).add(cameraId));
+          setRecordingStartTimes(prev => new Map(prev).set(cameraId, Date.now()));
+          
+          // Start duration timer
+          setInterval(() => {
+            setRecordingDurations(prev => {
+              const updated = new Map(prev);
+              const startTime = recordingStartTimes.get(cameraId);
+              if (startTime) {
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                const minutes = Math.floor(elapsed / 60);
+                const seconds = elapsed % 60;
+                updated.set(cameraId, `${minutes}:${seconds.toString().padStart(2, '0')}`);
+              }
+              return updated;
+            });
+          }, 1000);
+          
+          alert('Recording started successfully!');
+        } else {
+          const errorData = await startResponse.json();
+          if (errorData.error && errorData.error.includes('already recording')) {
+            alert('This camera is already recording! The red button shows it\'s active. Click it again to stop.');
+            // Force update the UI to show recording state
+            setRecordingCameras(prev => new Set(prev).add(cameraId));
+            setRecordingStartTimes(prev => new Map(prev).set(cameraId, Date.now()));
+          } else {
+            alert(`Failed to start recording: ${errorData.error || 'Unknown error'}`);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error managing recording:', error);
+      alert('Error managing recording. Please check your connection and try again.');
+    }
+  };
+
+  const handleSettings = (camera: Camera) => {
+    setSettingsCamera(camera);
+    setShowSettingsModal(true);
+  };
+
+  const fetchRecordings = async () => {
+    setLoadingRecordings(true);
+    try {
+      const response = await fetch('http://localhost:8000/api/recordings/list');
+      if (response.ok) {
+        const data = await response.json();
+        setRecordings(data.recordings || []);
+      } else {
+        console.error('Failed to fetch recordings');
+        setRecordings([]);
+      }
+    } catch (error) {
+      console.error('Error fetching recordings:', error);
+      setRecordings([]);
+    } finally {
+      setLoadingRecordings(false);
+    }
+  };
+
+  const handleDeleteRecording = async (filename: string) => {
+    if (!confirm(`Are you sure you want to delete "${filename}"? This cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`http://localhost:8000/api/recording/${filename}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        alert('✅ Recording deleted successfully!');
+        // Refresh the recordings list
+        fetchRecordings();
+      } else {
+        const error = await response.json();
+        
+        // Special handling for file-in-use error (423 Locked)
+        if (response.status === 423) {
+          alert(`⚠️ ${error.error}\n\n💡 Tip: Close or pause all video players showing this recording, then try again.`);
+        } else {
+          alert(`❌ Failed to delete recording:\n${error.error || error.details || 'Unknown error'}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error deleting recording:', error);
+      alert('❌ Error deleting recording. Please try again.');
+    }
+  };
+
+  const handleOpenRecordings = () => {
+    setShowRecordingsModal(true);
+    fetchRecordings();
+  };
+
+  const handleSaveSettings = async (updatedCamera: Camera) => {
+    try {
+      const response = await fetch(`http://localhost:8000/api/camera/${updatedCamera.id}/update`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updatedCamera)
+      });
+
+      if (response.ok) {
+        alert('Settings saved successfully!');
+        setShowSettingsModal(false);
+        if (onRefreshCameras) await onRefreshCameras();
+      } else {
+        alert('Failed to save settings');
+      }
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      alert('Error saving settings');
     }
   };
 
@@ -375,6 +592,14 @@ export default function LiveStreams({ cameras: propCameras, onRefreshCameras }: 
             <span className="sm:hidden">Add</span>
           </button>
           <button 
+            onClick={handleOpenRecordings}
+            className="px-3 sm:px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm whitespace-nowrap"
+          >
+            <i className="ri-video-line mr-1 sm:mr-2"></i>
+            <span className="hidden sm:inline">View Recordings</span>
+            <span className="sm:hidden">Videos</span>
+          </button>
+          <button 
             onClick={() => setShowProtectedManager(true)}
             className="px-3 sm:px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm whitespace-nowrap"
           >
@@ -493,12 +718,26 @@ export default function LiveStreams({ cameras: propCameras, onRefreshCameras }: 
                 
                 <div className="flex items-center justify-between">
                   <div className="flex space-x-1 sm:space-x-2">
-                    <button 
-                      className="p-1.5 sm:p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                      title="Record"
-                    >
-                      <i className="ri-record-circle-line text-sm sm:text-base"></i>
-                    </button>
+                    <div className="relative">
+                      <button 
+                        className={`p-1.5 sm:p-2 rounded transition-colors ${
+                          recordingCameras.has(camera.id)
+                            ? 'text-red-600 bg-red-50 hover:bg-red-100'
+                            : 'text-gray-400 hover:text-blue-600 hover:bg-blue-50'
+                        }`}
+                        title={recordingCameras.has(camera.id) ? 'Stop Recording' : 'Start Recording'}
+                        onClick={() => handleRecording(camera.id)}
+                      >
+                        <i className={`ri-record-circle-line text-sm sm:text-base ${
+                          recordingCameras.has(camera.id) ? 'animate-pulse' : ''
+                        }`}></i>
+                      </button>
+                      {recordingCameras.has(camera.id) && recordingDurations.get(camera.id) && (
+                        <div className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] px-1 rounded font-mono">
+                          {recordingDurations.get(camera.id)}
+                        </div>
+                      )}
+                    </div>
                     <button 
                       className="p-1.5 sm:p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
                       title="Snapshot"
@@ -509,6 +748,7 @@ export default function LiveStreams({ cameras: propCameras, onRefreshCameras }: 
                     <button 
                       className="p-1.5 sm:p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
                       title="Settings"
+                      onClick={() => handleSettings(camera)}
                     >
                       <i className="ri-settings-3-line text-sm sm:text-base"></i>
                     </button>
@@ -548,6 +788,244 @@ export default function LiveStreams({ cameras: propCameras, onRefreshCameras }: 
       {/* Protected Camera Manager */}
       {showProtectedManager && (
         <ProtectedCameraManager onClose={() => setShowProtectedManager(false)} />
+      )}
+
+      {/* Snapshot Preview Modal */}
+      {showSnapshotModal && snapshotData && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-auto">
+            <div className="p-4 border-b flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Snapshot Preview</h3>
+              <button onClick={() => setShowSnapshotModal(false)} className="text-gray-500 hover:text-gray-700">
+                <i className="ri-close-line text-2xl"></i>
+              </button>
+            </div>
+            <div className="p-6">
+              <img src={snapshotData.url} alt="Snapshot" className="w-full rounded-lg shadow-lg" />
+              <p className="text-sm text-gray-600 mt-4">Saved to: {snapshotData.path}</p>
+            </div>
+            <div className="p-4 border-t flex justify-end space-x-3">
+              <a
+                href={snapshotData.url}
+                download
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                <i className="ri-download-line mr-2"></i>
+                Download
+              </a>
+              <button
+                onClick={() => window.open(snapshotData.url, '_blank')}
+                className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+              >
+                <i className="ri-fullscreen-line mr-2"></i>
+                Fullscreen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Settings Modal */}
+      {showSettingsModal && settingsCamera && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowSettingsModal(false)}
+        >
+          <div 
+            className="bg-white rounded-lg max-w-2xl w-full max-h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b flex items-center justify-between flex-shrink-0">
+              <h3 className="text-lg font-semibold">Camera Settings - {settingsCamera.name}</h3>
+              <button onClick={() => setShowSettingsModal(false)} className="text-gray-500 hover:text-gray-700">
+                <i className="ri-close-line text-2xl"></i>
+              </button>
+            </div>
+            <div className="p-6 space-y-4 overflow-y-auto flex-1">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Camera Name</label>
+                <input
+                  type="text"
+                  defaultValue={settingsCamera.name}
+                  onChange={(e) => setSettingsCamera({...settingsCamera, name: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                <input
+                  type="text"
+                  defaultValue={settingsCamera.location}
+                  onChange={(e) => setSettingsCamera({...settingsCamera, location: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Camera URL</label>
+                <input
+                  type="text"
+                  defaultValue={settingsCamera.url}
+                  onChange={(e) => setSettingsCamera({...settingsCamera, url: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="http://192.168.1.100:8080/video"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">AI Detection Mode</label>
+                <select
+                  defaultValue={(settingsCamera as any).ai_mode || 'both'}
+                  onChange={(e) => setSettingsCamera({...settingsCamera, ai_mode: e.target.value} as any)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="both">Face Recognition + Activity Detection</option>
+                  <option value="face_recognition">Face Recognition Only</option>
+                  <option value="yolov9">Activity Detection Only</option>
+                </select>
+              </div>
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <h4 className="font-medium text-gray-700 mb-2">Live Preview</h4>
+                {settingsCamera.url && settingsCamera.url !== '0' ? (
+                  <img 
+                    src={settingsCamera.url.includes('video') ? settingsCamera.url : `${settingsCamera.url}/video`}
+                    alt="Camera preview"
+                    className="w-full rounded"
+                  />
+                ) : (
+                  <div className="bg-gray-200 h-48 flex items-center justify-center rounded">
+                    <i className="ri-camera-line text-gray-400 text-4xl"></i>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="p-4 border-t flex justify-end space-x-3 flex-shrink-0 bg-white">
+              <button
+                onClick={() => setShowSettingsModal(false)}
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleSaveSettings(settingsCamera)}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recordings List Modal */}
+      {showRecordingsModal && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowRecordingsModal(false)}
+        >
+          <div 
+            className="bg-white rounded-lg max-w-6xl w-full max-h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b flex items-center justify-between flex-shrink-0">
+              <div>
+                <h3 className="text-lg font-semibold">Recorded Videos</h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  Storage: <code className="bg-gray-100 px-2 py-0.5 rounded text-xs">backend/storage/recordings/</code>
+                </p>
+              </div>
+              <button onClick={() => setShowRecordingsModal(false)} className="text-gray-500 hover:text-gray-700">
+                <i className="ri-close-line text-2xl"></i>
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto flex-1">
+              {loadingRecordings ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+                  <span className="ml-3 text-gray-600">Loading recordings...</span>
+                </div>
+              ) : recordings.length === 0 ? (
+                <div className="text-center py-12">
+                  <i className="ri-video-line text-6xl text-gray-300 block mb-4"></i>
+                  <h4 className="text-lg font-medium text-gray-700 mb-2">No Recordings Yet</h4>
+                  <p className="text-gray-500 mb-4">Start recording from any camera to see videos here</p>
+                  <button
+                    onClick={() => setShowRecordingsModal(false)}
+                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                  >
+                    <i className="ri-record-circle-line mr-2"></i>
+                    Start Recording
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {recordings.map((recording, index) => (
+                    <div key={index} className="border rounded-lg overflow-hidden hover:shadow-lg transition-shadow">
+                      <div className="bg-black aspect-video flex items-center justify-center">
+                        <video 
+                          src={`http://localhost:8000/api/storage/recording/${recording.filename}`}
+                          className="w-full h-full object-contain"
+                          controls
+                        >
+                          Your browser does not support video playback.
+                        </video>
+                      </div>
+                      <div className="p-3">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex-1">
+                            <h4 className="font-medium text-gray-900 truncate">{recording.camera_name || 'Unknown Camera'}</h4>
+                            <p className="text-xs text-gray-500">
+                              {recording.location || cameras.find(c => c.name === recording.camera_name)?.location || 'No location set'}
+                            </p>
+                          </div>
+                          <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded">
+                            {recording.size_mb || recording.duration || 'N/A'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-600 mb-3">
+                          <i className="ri-time-line mr-1"></i>
+                          {recording.timestamp || 'Unknown time'}
+                        </p>
+                        <div className="flex gap-2">
+                          <a
+                            href={`http://localhost:8000/api/storage/recording/${recording.filename}`}
+                            download
+                            className="flex-1 px-3 py-1.5 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 text-center"
+                          >
+                            <i className="ri-download-line mr-1"></i>
+                            Download
+                          </a>
+                          <button
+                            onClick={() => window.open(`http://localhost:8000/api/storage/recording/${recording.filename}`, '_blank')}
+                            className="px-3 py-1.5 border border-gray-300 text-gray-700 text-xs rounded hover:bg-gray-50"
+                          >
+                            <i className="ri-external-link-line"></i>
+                          </button>
+                          <button
+                            onClick={() => handleDeleteRecording(recording.filename)}
+                            className="px-3 py-1.5 bg-red-600 text-white text-xs rounded hover:bg-red-700"
+                            title="Delete recording"
+                          >
+                            <i className="ri-delete-bin-line"></i>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="p-4 border-t flex justify-between items-center flex-shrink-0 bg-gray-50">
+              <p className="text-sm text-gray-600">
+                Total: <span className="font-semibold">{recordings.length}</span> recording{recordings.length !== 1 ? 's' : ''}
+              </p>
+              <button
+                onClick={() => setShowRecordingsModal(false)}
+                className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

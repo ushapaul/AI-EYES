@@ -181,6 +181,21 @@ class CameraModel(BaseModel):
             'status': status,
             'last_seen': datetime.utcnow()
         })
+    
+    def find_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """Find camera by name"""
+        if self.collection is None:
+            return None
+        
+        try:
+            camera = self.collection.find_one({'name': name})
+            if camera and '_id' in camera:
+                camera['id'] = str(camera['_id'])
+                del camera['_id']
+            return camera
+        except Exception as e:
+            print(f"❌ Error finding camera by name: {e}")
+            return None
 
 class AlertModel(BaseModel):
     """Alert model for security events"""

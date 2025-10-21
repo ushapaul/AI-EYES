@@ -48,9 +48,15 @@ class EmailAlertService:
                 'icon': '🚨'
             },
             'multiple_persons': {
-                'subject': '👥 ALERT: Multiple Persons Detected',
+                'subject': '👥 CROWD ALERT: Multiple Persons Detected',
                 'priority': 'High',
-                'color': '#fd7e14',
+                'color': '#ffc107',
+                'icon': '👥'
+            },
+            'crowd_formation': {
+                'subject': '🚨 CROWD ALERT: Large Gathering Detected',
+                'priority': 'Critical',
+                'color': '#ff9800',
                 'icon': '👥'
             }
         }

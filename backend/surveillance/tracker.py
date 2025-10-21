@@ -55,9 +55,20 @@ class PersonTracker:
         """
         try:
             if self.tracker_type == 'CSRT':
+                # CSRT is still in main cv2 module and most reliable
                 return cv2.TrackerCSRT_create()
             elif self.tracker_type == 'KCF':
-                return cv2.TrackerKCF_create()
+                # KCF moved to legacy in OpenCV 4.5.1+
+                # Try legacy first, then old API, then fallback to CSRT
+                try:
+                    return cv2.legacy.TrackerKCF_create()
+                except (AttributeError, Exception):
+                    try:
+                        return cv2.TrackerKCF_create()
+                    except (AttributeError, Exception):
+                        # KCF not available, use CSRT instead
+                        logger.warning("KCF tracker not available, using CSRT instead")
+                        return cv2.TrackerCSRT_create()
             elif self.tracker_type == 'BOOSTING':
                 return cv2.legacy.TrackerBoosting_create()
             elif self.tracker_type == 'MIL':
@@ -71,7 +82,15 @@ class PersonTracker:
                 return cv2.TrackerCSRT_create()
         except Exception as e:
             logger.error(f"Failed to create tracker: {e}")
-            return None
+            # Final fallback to CSRT which is most stable
+            try:
+                return cv2.TrackerCSRT_create()
+            except:
+                return None
+            try:
+                return cv2.TrackerCSRT_create()
+            except:
+                return None
     
     def _calculate_iou(self, box1: List[int], box2: List[int]) -> float:
         """

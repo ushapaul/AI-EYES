@@ -69,7 +69,7 @@ export const useApi = () => {
           // Fetch real data from backend
           const [alertsRes, camerasRes, statsRes, logsRes] = await Promise.all([
             fetch('http://localhost:8000/api/alerts/list'),
-            fetch('http://localhost:8000/api/camera/list'),
+            fetch('http://localhost:8000/api/cameras/list'),
             fetch('http://localhost:8000/api/stats'),
             fetch('http://localhost:8000/api/logs')
           ]);
@@ -126,7 +126,7 @@ export const useApi = () => {
 
   const refreshCameras = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/camera/list');
+      const response = await fetch('http://localhost:8000/api/cameras/list');
       if (response.ok) {
         const data = await response.json();
         setCameras(data);

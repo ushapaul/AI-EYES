@@ -40,7 +40,9 @@ class CameraDiscovery:
                         camera['id'] = str(camera['_id'])
                         del camera['_id']
                 self.discovered_cameras = cameras
-                print(f"📂 Loaded {len(self.discovered_cameras)} previously discovered cameras from MongoDB")
+                # Only print if cameras exist (reduce noise)
+                if len(self.discovered_cameras) > 0:
+                    print(f"📂 Loaded {len(self.discovered_cameras)} cameras from database")
             else:
                 print("⚠️ MongoDB not connected - cannot load cameras")
                 self.discovered_cameras = []
@@ -284,7 +286,7 @@ class CameraDiscovery:
         try:
             from urllib.parse import urlparse
             parsed = urlparse(url)
-            ip = parsed.hostname
+            ip = parsed.hostname or 'unknown'
             port = parsed.port or 8080
             
             camera = {
@@ -333,7 +335,7 @@ class CameraDiscovery:
     
     def update_camera_status(self):
         """Update status of all cameras (online/offline)"""
-        print("🔄 Updating camera connectivity status...")
+        # Silent monitoring - no console spam
         
         for camera in self.discovered_cameras:
             is_online = self.check_camera_connectivity(camera)
@@ -345,7 +347,6 @@ class CameraDiscovery:
                 camera['status'] = 'offline'
         
         self.save_discovered_cameras()
-        print("✅ Camera status updated")
     
     def start_status_monitor(self, interval: int = 30):
         """Start periodic status monitoring (every 30 seconds by default)"""
