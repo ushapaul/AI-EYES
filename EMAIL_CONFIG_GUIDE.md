@@ -2,7 +2,7 @@
 
 ## Current Email Configuration
 
-All email addresses are currently set to **fyrentech@gmail.com** for testing purposes.
+All email addresses are currently set to **kkprajwal2003@gmail.com, basa79750v040a@gmail.com, rajshekarreddy0411@gmail.com** for testing purposes.
 
 ## Files to Update
 
@@ -11,14 +11,14 @@ All email addresses are currently set to **fyrentech@gmail.com** for testing pur
 
 ```env
 # Frontend Environment Variables (VITE_ prefix required)
-VITE_MANAGER_PRAJWAL_EMAIL=fyrentech@gmail.com
-VITE_FARMER_BASAVA_EMAIL=fyrentech@gmail.com
-VITE_OWNER_RAJASEKHAR_EMAIL=fyrentech@gmail.com
+VITE_MANAGER_PRAJWAL_EMAIL=kkprajwal2003@gmail.com
+VITE_FARMER_BASAVA_EMAIL=basa79750v040a@gmail.com
+VITE_OWNER_RAJASEKHAR_EMAIL=rajshekarreddy0411@gmail.com
 
 # Backend versions (without VITE_ prefix)
-MANAGER_PRAJWAL_EMAIL=fyrentech@gmail.com
-FARMER_BASAVA_EMAIL=fyrentech@gmail.com
-OWNER_RAJASEKHAR_EMAIL=fyrentech@gmail.com
+MANAGER_PRAJWAL_EMAIL=kkprajwal2003@gmail.com
+FARMER_BASAVA_EMAIL=basa79750v040a@gmail.com
+OWNER_RAJASEKHAR_EMAIL=rajshekarreddy0411@gmail.com
 ```
 
 ### 2. Backend `.env` File
@@ -26,9 +26,9 @@ OWNER_RAJASEKHAR_EMAIL=fyrentech@gmail.com
 
 ```env
 # Authorized Persons
-MANAGER_PRAJWAL_EMAIL=fyrentech@gmail.com
-FARMER_BASAVA_EMAIL=fyrentech@gmail.com
-OWNER_RAJASEKHAR_EMAIL=fyrentech@gmail.com
+MANAGER_PRAJWAL_EMAIL=kkprajwal2003@gmail.com
+FARMER_BASAVA_EMAIL=basa79750v040a@gmail.com
+OWNER_RAJASEKHAR_EMAIL=rajshekarreddy0411@gmail.com
 ```
 
 ## How to Update with Real Email Addresses
@@ -97,9 +97,9 @@ python app_simple.py
 
 ## Current Status
 
-✅ **SendGrid Configured**: fyrentech@gmail.com (sending from)
+✅ **SendGrid Configured**: kkprajwal2003@gmail.com (sending from)
 ✅ **API Key Active**: SG.-2WoT9NoQbGsoqHcbIN3-w...
-⚠️ **All Recipients**: Currently same email (fyrentech@gmail.com) - needs updating
+⚠️ **All Recipients**: Currently set to the test addresses; update to actual recipients: kkprajwal2003@gmail.com, basa79750v040a@gmail.com, rajshekarreddy0411@gmail.com
 ✅ **Email Templates**: Professional HTML with images
 ✅ **Escalation Feature**: Fully implemented and ready
 
@@ -167,5 +167,5 @@ SENDGRID_API_KEY=<production_api_key>
 
 **Last Updated**: January 2025
 **System**: AI Eyes Security Surveillance
-**Email Provider**: SendGrid (fyrentech@gmail.com)
+**Email Provider**: SendGrid (kkprajwal2003@gmail.com)
 **Status**: ✅ Ready for Testing → ⚠️ Update with real emails

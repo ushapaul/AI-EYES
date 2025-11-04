@@ -94,9 +94,9 @@ POST   /api/settings/test-connection  - Test system connections
   },
   "alerts": {
     "emailNotifications": true,
-    "emailAddress": "fyrentech@gmail.com",
-    "escalationEnabled": true,
-    "escalationContacts": "fyrentech@gmail.com"
+  "emailAddress": "kkprajwal2003@gmail.com",
+  "escalationEnabled": true,
+  "escalationContacts": "kkprajwal2003@gmail.com, basa79750v040a@gmail.com, rajshekarreddy0411@gmail.com"
   }
 }
 ```

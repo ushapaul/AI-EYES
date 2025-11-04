@@ -5,7 +5,7 @@ Track detected persons across frames using OpenCV trackers and assign unique IDs
 
 import cv2
 import numpy as np
-from typing import Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional
 import time
 import logging
 from collections import defaultdict
@@ -46,51 +46,59 @@ class PersonTracker:
         self.iou_threshold = 0.5
         self.distance_threshold = 100
         
-    def _create_tracker(self) -> Optional[cv2.Tracker]:
+    def _create_tracker(self) -> Optional[Any]:
         """
         Create OpenCV tracker instance
         
         Returns:
             Tracker object or None if failed
         """
-        try:
-            if self.tracker_type == 'CSRT':
-                # CSRT is still in main cv2 module and most reliable
-                return cv2.TrackerCSRT_create()
-            elif self.tracker_type == 'KCF':
-                # KCF moved to legacy in OpenCV 4.5.1+
-                # Try legacy first, then old API, then fallback to CSRT
+        # Helper that tries named factory functions in cv2, including nested `legacy`.
+        def try_factories(names: List[str]) -> Optional[Any]:
+            for name in names:
                 try:
-                    return cv2.legacy.TrackerKCF_create()
-                except (AttributeError, Exception):
-                    try:
-                        return cv2.TrackerKCF_create()
-                    except (AttributeError, Exception):
-                        # KCF not available, use CSRT instead
-                        logger.warning("KCF tracker not available, using CSRT instead")
-                        return cv2.TrackerCSRT_create()
-            elif self.tracker_type == 'BOOSTING':
-                return cv2.legacy.TrackerBoosting_create()
-            elif self.tracker_type == 'MIL':
-                return cv2.legacy.TrackerMIL_create()
-            elif self.tracker_type == 'TLD':
-                return cv2.legacy.TrackerTLD_create()
-            elif self.tracker_type == 'MEDIANFLOW':
-                return cv2.legacy.TrackerMedianFlow_create()
-            else:
-                logger.warning(f"Unknown tracker type: {self.tracker_type}, using CSRT")
-                return cv2.TrackerCSRT_create()
+                    # Support dotted names like 'legacy.TrackerKCF_create'
+                    if '.' in name:
+                        parts = name.split('.')
+                        obj = cv2
+                        for part in parts[:-1]:
+                            obj = getattr(obj, part, None)
+                            if obj is None:
+                                break
+                        if obj is None:
+                            continue
+                        func = getattr(obj, parts[-1], None)
+                    else:
+                        func = getattr(cv2, name, None)
+
+                    if callable(func):
+                        return func()
+                except Exception:
+                    continue
+            return None
+
+        # Map tracker types to factory names (tries in order)
+        factories = {
+            'CSRT': ['TrackerCSRT_create', 'legacy.TrackerCSRT_create'],
+            'KCF': ['legacy.TrackerKCF_create', 'TrackerKCF_create'],
+            'BOOSTING': ['legacy.TrackerBoosting_create', 'TrackerBoosting_create'],
+            'MIL': ['legacy.TrackerMIL_create', 'TrackerMIL_create'],
+            'TLD': ['legacy.TrackerTLD_create', 'TrackerTLD_create'],
+            'MEDIANFLOW': ['legacy.TrackerMedianFlow_create', 'TrackerMedianFlow_create']
+        }
+
+        # Try the requested tracker type first, then fall back to CSRT
+        try:
+            # Ensure `names` is always a concrete List[str] (avoid Optional for type checkers)
+            names: List[str] = factories.get(self.tracker_type) or factories['CSRT']
+            tracker = try_factories(names)
+            if tracker is not None:
+                return tracker
         except Exception as e:
-            logger.error(f"Failed to create tracker: {e}")
-            # Final fallback to CSRT which is most stable
-            try:
-                return cv2.TrackerCSRT_create()
-            except:
-                return None
-            try:
-                return cv2.TrackerCSRT_create()
-            except:
-                return None
+            logger.debug(f"Tracker factory error for {self.tracker_type}: {e}")
+
+        # Final fallback to CSRT (most stable)
+        return try_factories(factories['CSRT'])
     
     def _calculate_iou(self, box1: List[int], box2: List[int]) -> float:
         """
@@ -372,7 +380,7 @@ class PersonTracker:
         """
         return len(self.active_tracks)
     
-    def draw_tracks(self, frame: np.ndarray, tracks: Dict[int, Dict] = None) -> np.ndarray:
+    def draw_tracks(self, frame: np.ndarray, tracks: Optional[Dict[int, Dict]] = None) -> np.ndarray:
         """
         Draw tracking information on frame
         

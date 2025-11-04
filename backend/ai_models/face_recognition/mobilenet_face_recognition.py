@@ -3,13 +3,31 @@ Face Recognition using MobileNetV2 (works without ImageNet issues)
 Smaller model perfect for small datasets
 """
 
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow messages
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+
+import warnings
+warnings.filterwarnings('ignore')
+
+# Suppress absl warnings
+import absl.logging
+absl.logging.set_verbosity(absl.logging.ERROR)
+
 import cv2
 import numpy as np
 import pickle
-import os
 from pathlib import Path
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
+
+# Suppress TensorFlow logging before importing
+import logging
+logging.getLogger('tensorflow').setLevel(logging.ERROR)
+
+import sys
+import contextlib
+
 from tensorflow.keras.applications import MobileNetV2
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 from tensorflow.keras.models import Sequential
@@ -247,7 +265,9 @@ class MobileNetFaceRecognitionSystem:
         from tensorflow.keras.models import load_model
         
         try:
-            self.classifier_model = load_model(f"{model_path}_classifier.h5")
+            # Suppress all TensorFlow Lite and Keras warnings during model loading
+            with contextlib.redirect_stderr(open(os.devnull, 'w')):
+                self.classifier_model = load_model(f"{model_path}_classifier.h5")
             print(f"Classifier model loaded from {model_path}_classifier.h5")
             
             with open(f"{model_path}_data.pkl", 'rb') as f:

@@ -1,0 +1,8 @@
+,precision,recall,f1-score,support
+farmer_Basava,0.0,0.0,0.0,32.0
+manager_prajwal,0.0,0.0,0.0,21.0
+owner_rajasekhar,0.0,0.0,0.0,30.0
+person,0.0,0.0,0.0,0.0
+accuracy,0.0,0.0,0.0,0.0
+macro avg,0.0,0.0,0.0,83.0
+weighted avg,0.0,0.0,0.0,83.0

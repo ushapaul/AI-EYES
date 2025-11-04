@@ -58,14 +58,14 @@ Successfully implemented real email escalation functionality for security alerts
 
 ## Email Configuration
 - **Service**: SendGrid API
-- **From Email**: fyrentech@gmail.com (configured in .env)
+- **From Email**: kkprajwal2003@gmail.com (configured in .env)
 - **API Key**: SG.-2WoT9NoQbGsoqHcbIN3-w... (configured in .env)
 - **Template**: Uses existing EmailAlertService with professional HTML templates
 - **Attachments**: Includes alert screenshot automatically
 - **Recipients**: Uses authorized persons from environment variables:
-  - **Manager Prajwal**: `VITE_MANAGER_PRAJWAL_EMAIL` (fyrentech@gmail.com)
-  - **Farmer Basava**: `VITE_FARMER_BASAVA_EMAIL` (fyrentech@gmail.com)
-  - **Owner Rajasekhar**: `VITE_OWNER_RAJASEKHAR_EMAIL` (fyrentech@gmail.com)
+   - **Manager Prajwal**: `VITE_MANAGER_PRAJWAL_EMAIL` (kkprajwal2003@gmail.com)
+   - **Farmer Basava**: `VITE_FARMER_BASAVA_EMAIL` (basa79750v040a@gmail.com)
+   - **Owner Rajasekhar**: `VITE_OWNER_RAJASEKHAR_EMAIL` (rajshekarreddy0411@gmail.com)
 
 ## User Flow
 1. User clicks "View Details" on an alert
@@ -107,9 +107,9 @@ All escalations are logged in MongoDB:
 - ✅ Frontend shows user-friendly error messages
 
 ## Testing Checklist
-- [ ] Click Manager Prajwal button → Email sent to fyrentech@gmail.com
-- [ ] Click Farmer Basava button → Email sent to fyrentech@gmail.com
-- [ ] Click Owner Rajasekhar button → Email sent to fyrentech@gmail.com
+- [ ] Click Manager Prajwal button → Email sent to kkprajwal2003@gmail.com
+- [ ] Click Farmer Basava button → Email sent to basa79750v040a@gmail.com
+- [ ] Click Owner Rajasekhar button → Email sent to rajshekarreddy0411@gmail.com
 - [ ] Verify emails arrive with correct recipient name
 - [ ] Check email formatting and images
 - [ ] Verify log entries in MongoDB
@@ -122,14 +122,14 @@ All escalations are logged in MongoDB:
 ```env
 # Backend (.env in backend/ folder)
 SENDGRID_API_KEY=SG.-2WoT9NoQbGsoqHcbIN3-w...
-SENDGRID_FROM_EMAIL=fyrentech@gmail.com
+SENDGRID_FROM_EMAIL=kkprajwal2003@gmail.com
 SENDGRID_FROM_NAME=AI Eyes Security System
 ENABLE_EMAIL_ALERTS=true
 
 # Frontend (.env in root folder)
-VITE_MANAGER_PRAJWAL_EMAIL=fyrentech@gmail.com
-VITE_FARMER_BASAVA_EMAIL=fyrentech@gmail.com
-VITE_OWNER_RAJASEKHAR_EMAIL=fyrentech@gmail.com
+VITE_MANAGER_PRAJWAL_EMAIL=kkprajwal2003@gmail.com
+VITE_FARMER_BASAVA_EMAIL=basa79750v040a@gmail.com
+VITE_OWNER_RAJASEKHAR_EMAIL=rajshekarreddy0411@gmail.com
 ```
 
 **⚠️ Note**: Update the email addresses in `.env` to use actual individual email addresses instead of the same email for all persons.

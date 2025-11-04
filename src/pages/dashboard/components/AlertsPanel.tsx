@@ -196,9 +196,24 @@ export default function AlertsPanel({ alerts, onAcknowledge, onDismiss, onEscala
                       className="w-full h-80 object-cover rounded-lg border-2 border-gray-200"
                       onError={(e) => {
                         const target = e.target as HTMLImageElement;
-                        // Use a security camera placeholder image
-                        target.src = 'https://images.unsplash.com/photo-1557597774-9d273605dfa9?w=800&h=600&fit=crop';
-                        target.onerror = null; // Prevent infinite loop
+                        // Hide image and show "No Evidence" message instead
+                        target.style.display = 'none';
+                        const parent = target.parentElement;
+                        if (parent) {
+                          parent.innerHTML = `
+                            <div class="w-full h-80 bg-gradient-to-br from-gray-900 to-gray-700 rounded-lg flex flex-col items-center justify-center text-white relative overflow-hidden">
+                              <div class="absolute inset-0 opacity-10">
+                                <svg class="w-full h-full" viewBox="0 0 200 200" fill="currentColor">
+                                  <path d="M100 50c-27.6 0-50 22.4-50 50s22.4 50 50 50 50-22.4 50-50-22.4-50-50-50zm0 80c-16.5 0-30-13.5-30-30s13.5-30 30-30 30 13.5 30 30-13.5 30-30 30z"/>
+                                  <circle cx="100" cy="100" r="15"/>
+                                </svg>
+                              </div>
+                              <i class="ri-camera-off-line text-6xl mb-3 relative z-10"></i>
+                              <p class="text-lg font-medium relative z-10">Evidence Image Not Available</p>
+                              <p class="text-sm text-gray-400 mt-1 relative z-10">Could not load captured image</p>
+                            </div>
+                          `;
+                        }
                       }}
                     />
                     <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-10 transition-all rounded-lg"></div>
@@ -487,15 +502,6 @@ export default function AlertsPanel({ alerts, onAcknowledge, onDismiss, onEscala
                 >
                   <i className="ri-error-warning-line mr-2"></i>
                   Mark as False Positive
-                </button>
-                <button
-                  onClick={() => {
-                    setShowEmailModal(true);
-                  }}
-                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
-                >
-                  <i className="ri-mail-send-line mr-2"></i>
-                  Send Email Alert
                 </button>
               </div>
             </div>

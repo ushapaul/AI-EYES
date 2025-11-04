@@ -7,6 +7,17 @@ Provides unified surveillance across multiple camera feeds
 
 import sys
 import os
+
+# Get the directory where this script is located (backend directory)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+STORAGE_DIR = os.path.join(SCRIPT_DIR, "storage")
+SNAPSHOTS_DIR = os.path.join(STORAGE_DIR, "snapshots")
+
+# Suppress TensorFlow warnings for cleaner output
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 0=all, 1=info, 2=warning, 3=error
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN custom operations message
+os.environ['OPENCV_FFMPEG_LOGLEVEL'] = '-8'  # Suppress FFmpeg connection errors
+
 import cv2
 import time
 import threading
@@ -15,6 +26,14 @@ from datetime import datetime
 from flask import Flask, jsonify, Response, render_template_string, request
 import json
 from dotenv import load_dotenv
+
+# Suppress additional warnings
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning)
+warnings.filterwarnings('ignore', category=FutureWarning)
+
+# Set OpenCV log level to ERROR only
+cv2.setLogLevel(3)  # 0=DEBUG, 1=INFO, 2=WARNING, 3=ERROR, 4=FATAL
 
 # Load environment variables
 load_dotenv()
@@ -102,9 +121,10 @@ class MultiCameraAISurveillance:
         
         self.setup_flask_routes()
     
-    def auto_detect_cameras(self):
+    def auto_detect_cameras(self, silent=False):
         """Automatically detect all live IP cameras using discovery service"""
-        print("🔎 Auto-detecting live IP cameras...")
+        if not silent:
+            print("🔎 Auto-detecting live IP cameras...")
         
         cameras = {}
         
@@ -116,7 +136,8 @@ class MultiCameraAISurveillance:
             discovered_cameras = camera_discovery.get_cameras()
             
             if discovered_cameras:
-                print(f"📂 Found {len(discovered_cameras)} cameras in discovery database")
+                if not silent:
+                    print(f"📂 Found {len(discovered_cameras)} cameras in discovery database")
                 
                 for cam in discovered_cameras:
                     # Only use online cameras
@@ -129,14 +150,15 @@ class MultiCameraAISurveillance:
                             response = requests.head(camera_url, timeout=2)
                             if response.status_code in [200, 302]:
                                 cameras[camera_name] = camera_url
-                                print(f"✅ {camera_name}: {camera_url}")
+                                if not silent:
+                                    print(f"✅ {camera_name}: {camera_url}")
                         except:
-                            print(f"❌ {camera_name}: {camera_url} (not accessible)")
-            else:
-                print("ℹ️ No cameras in discovery database, checking main cameras collection...")
+                            if not silent:
+                                print(f"❌ {camera_name}: {camera_url} (not accessible)")
         
         except ImportError:
-            print("⚠️ Camera discovery service not available")
+            if not silent:
+                print("⚠️ Camera discovery service not available")
         
         # Method 2: Load from main cameras collection (MongoDB)
         if not cameras:
@@ -148,7 +170,8 @@ class MultiCameraAISurveillance:
                     db_cameras = list(cameras_collection.find({'enabled': True}))
                     
                     if db_cameras:
-                        print(f"📂 Found {len(db_cameras)} cameras in main database")
+                        if not silent:
+                            print(f"📂 Found {len(db_cameras)} cameras in main database")
                         
                         for cam in db_cameras:
                             camera_name = cam.get('name', cam.get('_id'))
@@ -163,25 +186,29 @@ class MultiCameraAISurveillance:
                                 }
                                 
                                 # Check current accessibility for status display
-                                try:
-                                    response = requests.head(camera_url, timeout=2)
-                                    if response.status_code in [200, 302]:
-                                        print(f"✅ {camera_name}: {camera_url} (online)")
-                                    else:
-                                        print(f"⏳ {camera_name}: {camera_url} (will retry connection)")
-                                except:
-                                    print(f"⏳ {camera_name}: {camera_url} (waiting for connection)")
+                                if not silent:
+                                    try:
+                                        response = requests.head(camera_url, timeout=2)
+                                        if response.status_code in [200, 302]:
+                                            print(f"✅ {camera_name}: {camera_url} (online)")
+                                        else:
+                                            print(f"⏳ {camera_name}: {camera_url} (will retry connection)")
+                                    except:
+                                        print(f"⏳ {camera_name}: {camera_url} (waiting for connection)")
                     else:
-                        print("ℹ️ No enabled cameras in main database")
+                        if not silent:
+                            print("ℹ️ No enabled cameras in main database")
             except Exception as e:
-                print(f"⚠️ Error loading from main database: {e}")
+                if not silent:
+                    print(f"⚠️ Error loading from main database: {e}")
         
         # No fallback - return empty if no cameras discovered
-        if not cameras:
+        if not cameras and not silent:
             print("⚠️ No cameras detected. Please add cameras manually or use the discovery service.")
             print("📡 To scan: POST http://localhost:5000/api/camera/scan")
         
-        print(f"✅ Total cameras ready: {len(cameras)}")
+        if not silent:
+            print(f"✅ Total cameras ready: {len(cameras)}")
         return cameras
     
     def _initialize_activity_detection(self):
@@ -833,8 +860,8 @@ class MultiCameraAISurveillance:
                     
                     # Save snapshot for suspicious activity
                     snapshot_filename = f"{activity_type}_{camera_name}_{timestamp}.jpg"
-                    snapshot_path = os.path.join("storage", "snapshots", snapshot_filename)
-                    os.makedirs(os.path.dirname(snapshot_path), exist_ok=True)
+                    snapshot_path = os.path.join(SNAPSHOTS_DIR, snapshot_filename)
+                    os.makedirs(SNAPSHOTS_DIR, exist_ok=True)
                     cv2.imwrite(snapshot_path, frame)
                     
                     # Map activity type to severity
@@ -903,10 +930,10 @@ class MultiCameraAISurveillance:
             # Save weapon detection snapshot
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             snapshot_filename = f"weapon_{camera_name}_{timestamp}.jpg"
-            snapshot_path = os.path.join("storage", "snapshots", snapshot_filename)
+            snapshot_path = os.path.join(SNAPSHOTS_DIR, snapshot_filename)
             
             # Create directory if it doesn't exist
-            os.makedirs(os.path.dirname(snapshot_path), exist_ok=True)
+            os.makedirs(SNAPSHOTS_DIR, exist_ok=True)
             
             # Save the full frame as snapshot
             cv2.imwrite(snapshot_path, frame)
@@ -992,10 +1019,10 @@ class MultiCameraAISurveillance:
                     # Save intruder snapshot with timestamp
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     snapshot_filename = f"intruder_{camera_name}_{timestamp}.jpg"
-                    snapshot_path = os.path.join("storage", "snapshots", snapshot_filename)
+                    snapshot_path = os.path.join(SNAPSHOTS_DIR, snapshot_filename)
                     
                     # Create directory if it doesn't exist
-                    os.makedirs(os.path.dirname(snapshot_path), exist_ok=True)
+                    os.makedirs(SNAPSHOTS_DIR, exist_ok=True)
                     
                     # Save the full frame as snapshot
                     cv2.imwrite(snapshot_path, frame)
@@ -1090,10 +1117,10 @@ class MultiCameraAISurveillance:
                             # Send intruder alert (person was authorized but face hidden too long)
                             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                             snapshot_filename = f"intruder_{camera_name}_{timestamp}.jpg"
-                            snapshot_path = os.path.join("storage", "snapshots", snapshot_filename)
+                            snapshot_path = os.path.join(SNAPSHOTS_DIR, snapshot_filename)
                             
                             # Create directory if it doesn't exist
-                            os.makedirs(os.path.dirname(snapshot_path), exist_ok=True)
+                            os.makedirs(SNAPSHOTS_DIR, exist_ok=True)
                             
                             # Save the full frame as snapshot
                             cv2.imwrite(snapshot_path, frame)
@@ -1118,10 +1145,10 @@ class MultiCameraAISurveillance:
             # Save crowd snapshot
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             snapshot_filename = f"crowd_alert_{camera_name}_{timestamp}.jpg"
-            snapshot_path = os.path.join("storage", "snapshots", snapshot_filename)
+            snapshot_path = os.path.join(SNAPSHOTS_DIR, snapshot_filename)
             
             # Create directory if it doesn't exist
-            os.makedirs(os.path.dirname(snapshot_path), exist_ok=True)
+            os.makedirs(SNAPSHOTS_DIR, exist_ok=True)
             
             # Save the full frame as snapshot
             cv2.imwrite(snapshot_path, frame)
@@ -1152,10 +1179,10 @@ class MultiCameraAISurveillance:
             # Save abandoned object snapshot
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             snapshot_filename = f"abandoned_object_{camera_name}_{timestamp}.jpg"
-            snapshot_path = os.path.join("storage", "snapshots", snapshot_filename)
+            snapshot_path = os.path.join(SNAPSHOTS_DIR, snapshot_filename)
             
             # Create directory if it doesn't exist
-            os.makedirs(os.path.dirname(snapshot_path), exist_ok=True)
+            os.makedirs(SNAPSHOTS_DIR, exist_ok=True)
             
             # Save the full frame as snapshot
             cv2.imwrite(snapshot_path, frame)
@@ -1366,8 +1393,8 @@ class MultiCameraAISurveillance:
             try:
                 time.sleep(self.camera_discovery_interval)
                 
-                # Get current camera list from database
-                new_cameras = self.auto_detect_cameras()
+                # Get current camera list from database (silent mode to reduce spam)
+                new_cameras = self.auto_detect_cameras(silent=True)
                 
                 # Check for new cameras not in current list
                 for camera_name, camera_info in new_cameras.items():
@@ -1442,26 +1469,33 @@ class MultiCameraAISurveillance:
         self.app.run(host=host, port=port, debug=False, threaded=True)
 
 if __name__ == "__main__":
+    print("\n" + "=" * 70)
+    print("🔍 MULTI-CAMERA AI SURVEILLANCE SYSTEM - STARTING...")
+    print("=" * 70)
+    
     # Create multi-camera surveillance system
     surveillance = MultiCameraAISurveillance()
     
     print("\n" + "=" * 70)
-    print("🔍 MULTI-CAMERA AI SURVEILLANCE SYSTEM")
+    print("✅ SYSTEM READY")
     print("=" * 70)
-    print("🎯 Features:")
-    print("   ✅ Auto-detection of all live IP cameras")
-    print("   ✅ YOLOv9 object detection on each camera")
-    print("   ✅ Multi-camera activity correlation")
-    print("   ✅ Unified web dashboard")
-    print("   ✅ Individual camera control")
-    print("   ✅ Real-time alerts across all feeds")
+    print("📊 System Configuration:")
+    print(f"   📹 Cameras Detected: {len(surveillance.camera_urls)}")
+    print(f"   🤖 AI Detection: YOLOv9 + MobileNetV2 Face Recognition")
+    print(f"   🚨 Email Alerts: {'✅ Enabled' if surveillance.alert_manager.email_service.enabled else '❌ Disabled'}")
+    print(f"   🎯 Activity Detection: Loitering | Intrusion | Running | Objects")
+    print(f"   ⚙️  Frame Processing: Every {surveillance.FRAME_SKIP_INTERVAL} frames")
     print("=" * 70)
     
     try:
         # Auto-start surveillance on all cameras
+        print("\n🚀 Starting surveillance on all cameras...")
         surveillance.start_all_surveillance()
+        print(f"✅ {len(surveillance.active_cameras)} camera(s) active")
         
         # Launch web dashboard
+        print(f"\n🌐 Web Dashboard: http://0.0.0.0:8001")
+        print("=" * 70)
         surveillance.run()
         
     except KeyboardInterrupt:

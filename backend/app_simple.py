@@ -95,8 +95,12 @@ def create_app():
     app.config['SECRET_KEY'] = SECRET_KEY
     app.config['DEBUG'] = DEBUG
     
-    # Enable CORS for React frontend
-    CORS(app, origins=["http://localhost:3000", "http://localhost:5173"])
+    # Enable CORS for React frontend with full support
+    CORS(app, 
+         resources={r"/api/*": {"origins": ["http://localhost:3000", "http://localhost:5173"]}},
+         supports_credentials=True,
+         allow_headers=["Content-Type", "Authorization"],
+         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
     
     # Initialize SocketIO for real-time communication
     socketio = SocketIO(app, cors_allowed_origins=["http://localhost:3000", "http://localhost:5173"])
@@ -733,6 +737,80 @@ def create_app():
             
         except Exception as e:
             return {'error': str(e)}, 500
+    
+    @app.route('/api/alerts/send-email', methods=['POST', 'OPTIONS'])
+    def send_alert_email():
+        """Send alert email to selected recipients"""
+        # Handle preflight OPTIONS request
+        if request.method == 'OPTIONS':
+            return '', 204
+            
+        try:
+            from app.services.email_service import EmailService
+            
+            data = request.get_json()
+            
+            if not data:
+                return {'success': False, 'message': 'No data provided'}, 400
+            
+            # Extract recipients and alert data
+            recipients = data.get('recipients', [])
+            alert = data.get('alert', {})
+            
+            if not recipients:
+                return {'success': False, 'message': 'No recipients selected'}, 400
+            
+            # Extract email addresses from recipients
+            recipient_emails = [r['email'] for r in recipients if 'email' in r]
+            
+            if not recipient_emails:
+                return {'success': False, 'message': 'No valid email addresses found'}, 400
+            
+            # Initialize email service
+            email_service = EmailService()
+            
+            # Prepare alert data for email
+            alert_data = {
+                'type': alert.get('type', 'intruder'),
+                'description': alert.get('person', 'Unknown person detected'),
+                'location': alert.get('location', 'Unknown'),
+                'camera_id': alert.get('camera', 'Unknown'),
+                'confidence': alert.get('confidence', 95),
+                'severity': alert.get('severity', 'high'),
+                'timestamp': alert.get('timestamp', datetime.now().isoformat()),
+                'image_path': alert.get('image', '')
+            }
+            
+            # Send email to each recipient
+            success_count = 0
+            failed_recipients = []
+            
+            for email in recipient_emails:
+                try:
+                    # Override recipient for individual emails
+                    email_service.recipient_email = email
+                    result = email_service.send_alert(alert_data)
+                    if result:
+                        success_count += 1
+                    else:
+                        failed_recipients.append(email)
+                except Exception as e:
+                    print(f"Failed to send email to {email}: {e}")
+                    failed_recipients.append(email)
+            
+            if success_count > 0:
+                message = f'Email sent successfully to {success_count} recipient(s)'
+                if failed_recipients:
+                    message += f'. Failed: {", ".join(failed_recipients)}'
+                return {'success': True, 'message': message}
+            else:
+                return {'success': False, 'message': f'Failed to send to all recipients: {", ".join(failed_recipients)}'}, 500
+                
+        except Exception as e:
+            print(f"Error in send_alert_email: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'success': False, 'message': str(e)}, 500
     
     @app.route('/api/camera/test-url', methods=['POST'])
     def test_camera_url():

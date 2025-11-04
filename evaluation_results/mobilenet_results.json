@@ -1,0 +1,76 @@
+{
+  "model": "MobileNetV2",
+  "accuracy": 1.0,
+  "total_samples": 30,
+  "labels": [
+    "Unknown",
+    "farmer_Basava",
+    "manager_prajwal",
+    "owner_rajasekhar"
+  ],
+  "confusion_matrix": [
+    [
+      9,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      7,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      7,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      7
+    ]
+  ],
+  "classification_report": {
+    "Unknown": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 9.0
+    },
+    "farmer_Basava": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 7.0
+    },
+    "manager_prajwal": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 7.0
+    },
+    "owner_rajasekhar": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 7.0
+    },
+    "accuracy": 1.0,
+    "macro avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 30.0
+    },
+    "weighted avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 30.0
+    }
+  }
+}

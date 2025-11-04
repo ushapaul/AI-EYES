@@ -213,7 +213,6 @@ ai_mode = 'both'  # ← Default
 | **Status** | ❌ Deprecated | ❌ Replaced | **✅ Active** |
 
 ---
-
 ## 🚀 Why MobileNetV2?
 
 ### **Advantages**:
