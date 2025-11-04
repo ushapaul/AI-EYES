@@ -237,3 +237,11 @@ For issues or questions:
 ---
 
 **🎉 Happy Monitoring!**
+
+npm run dev
+
+cd "C:\Users\Lenovo\Desktop\AI eyes"; & "C:\Users\Lenovo\Desktop\AI eyes\venv_fresh_py310\Scripts\python.exe" "backend\multi_camera_surveillance.py"
+
+app_simple.py
+
+
