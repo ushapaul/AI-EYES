@@ -54,16 +54,46 @@ def get_logs():
 @api_bp.route('/settings', methods=['GET', 'POST'])
 def handle_settings():
     """Get or update system settings"""
+    from database.models import settings_model
+    
     if request.method == 'GET':
-        return jsonify({
-            'mode': 'farm',
-            'email_alerts': True,
-            'detection_sensitivity': 0.7,
-            'recording_enabled': True,
-            'notification_emails': ['admin@yourdomain.com']
-        })
+        # Get settings from database
+        category = request.args.get('category')
+        settings_data = settings_model.get_settings(category)
+        return jsonify(settings_data)
     
     elif request.method == 'POST':
-        settings = request.get_json()
-        # Here you would save settings to database or config file
-        return jsonify({'message': 'Settings updated successfully'})
+        # Save settings to database
+        data = request.get_json()
+        category = data.get('category')
+        settings = data.get('settings')
+        
+        if not category or not settings:
+            return jsonify({'error': 'Missing category or settings'}), 400
+        
+        success = settings_model.update_settings(category, settings)
+        
+        if success:
+            return jsonify({'message': f'{category.capitalize()} settings updated successfully'})
+        else:
+            return jsonify({'error': 'Failed to update settings'}), 500
+
+@api_bp.route('/settings/<category>', methods=['PUT', 'POST'])
+def update_settings_by_category(category):
+    """Update specific category settings (used by frontend)"""
+    from database.models import settings_model
+    
+    try:
+        settings_data = request.get_json()
+        
+        # Frontend sends the settings directly, not wrapped in 'settings' key
+        success = settings_model.update_settings(category, settings_data)
+        
+        if success:
+            print(f"✅ {category.capitalize()} settings updated successfully")
+            return jsonify({'success': True, 'message': f'{category.capitalize()} settings updated'})
+        else:
+            return jsonify({'success': False, 'error': 'Failed to update settings'}), 500
+    except Exception as e:
+        print(f"❌ Error updating {category} settings: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500

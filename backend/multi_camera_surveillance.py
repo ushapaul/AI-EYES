@@ -728,6 +728,35 @@ class MultiCameraAISurveillance:
             print("   🛡️ Full Protection - Face recognition (MobileNetV2) + Activity detection")
         
         cap = cv2.VideoCapture(camera_url)
+        
+        # Load camera settings from database and apply them
+        try:
+            from database.models import settings_model
+            camera_settings = settings_model.get_settings('camera')
+            if camera_settings:
+                settings_data = camera_settings.get('settings', {})
+                
+                # Set resolution based on settings
+                resolution = settings_data.get('defaultResolution', '1080p')
+                if resolution == '1080p':
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+                elif resolution == '720p':
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                elif resolution == '480p':
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                
+                # Set FPS based on settings
+                frame_rate = settings_data.get('frameRate', '30')
+                if frame_rate:
+                    cap.set(cv2.CAP_PROP_FPS, int(frame_rate))
+                
+                print(f"📹 [{camera_name}] Camera settings applied: {resolution} @ {frame_rate} FPS")
+        except Exception as e:
+            print(f"⚠️ Could not load camera settings, using defaults: {e}")
+        
         frame_count = 0
         last_fps_time = time.time()
         fps_counter = 0
@@ -737,7 +766,8 @@ class MultiCameraAISurveillance:
             'total_detections': 0,
             'fps': 0,
             'start_time': time.time(),
-            'ai_mode': ai_mode
+            'ai_mode': ai_mode,
+            'motion_sensitivity': 75  # Default, will be updated from settings
         }
         
         while camera_name in self.active_cameras:
@@ -790,10 +820,12 @@ class MultiCameraAISurveillance:
     def process_frame_ai(self, frame, camera_name, frame_count):
         """AI processing pipeline for each camera - Performance Optimized"""
         
-        # Reload AI mode from database every 30 frames (to pick up config changes without restart)
+        # Reload AI mode and camera settings from database every 30 frames (to pick up config changes without restart)
         if frame_count % 30 == 0:
             try:
-                from database.models import camera_model
+                from database.models import camera_model, settings_model
+                
+                # Reload camera-specific AI mode
                 camera_doc = camera_model.find_by_name(camera_name)
                 if camera_doc:
                     new_ai_mode = camera_doc.get('ai_mode', 'both')
@@ -803,7 +835,20 @@ class MultiCameraAISurveillance:
                             self.detection_stats[camera_name]['ai_mode'] = new_ai_mode
                             print(f"🔄 [{camera_name}] AI Mode updated: {old_mode} → {new_ai_mode}")
                 
-                # ALSO update activity analyzer thresholds to pick up code changes
+                # Reload global camera settings (motion sensitivity, night vision, etc.)
+                camera_settings = settings_model.get_settings('camera')
+                if camera_settings:
+                    settings_data = camera_settings.get('settings', {})
+                    
+                    # Update motion sensitivity if changed
+                    new_motion_sens = int(settings_data.get('motionSensitivity', 75))
+                    if camera_name in self.detection_stats:
+                        old_sens = self.detection_stats[camera_name].get('motion_sensitivity', 75)
+                        if new_motion_sens != old_sens:
+                            self.detection_stats[camera_name]['motion_sensitivity'] = new_motion_sens
+                            print(f"🔄 [{camera_name}] Motion Sensitivity updated: {old_sens}% → {new_motion_sens}%")
+                
+                # Update activity analyzer thresholds
                 if camera_name in self.activity_analyzers:
                     analyzer = self.activity_analyzers[camera_name]
                     if analyzer.speed_threshold != 15.0:

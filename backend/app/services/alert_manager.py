@@ -32,9 +32,10 @@ class AlertManager:
         else:
             self.alert_model = None
         
-        # Email cooldown settings (to prevent spam)
-        self.email_cooldown_minutes = int(os.getenv('ALERT_COOLDOWN_MINUTES', '5'))
+        # Email cooldown settings (to prevent spam) - load from database
+        self.email_cooldown_minutes = self._get_alert_cooldown()
         self.last_email_sent = defaultdict(lambda: datetime.min)
+        self.last_settings_check = datetime.min
         
         # Alert severity mapping
         self.severity_mapping = {
@@ -51,9 +52,50 @@ class AlertManager:
         print(f"🚨 Alert Manager initialized with SendGrid email service")
         print(f"📧 Email cooldown: {self.email_cooldown_minutes} minutes")
         print(f"📊 Email service status: {self.email_service.get_configuration_status()}")
+    
+    def _get_alert_cooldown(self):
+        """Get alert cooldown from database settings"""
+        try:
+            from database.models import settings_model
+            all_settings = settings_model.get_settings('alerts')
+            # Settings returns {'alerts': {'emailNotifications': True, ...}}
+            alert_settings = all_settings.get('alerts', {})
+            if not alert_settings:
+                # Fallback: maybe it's just the settings dict
+                alert_settings = all_settings if isinstance(all_settings, dict) else {}
+            cooldown = alert_settings.get('alertCooldown', '5')
+            return int(cooldown) if cooldown else 5
+        except Exception as e:
+            print(f"⚠️ Could not load alert cooldown from settings, using default: {e}")
+            return int(os.getenv('ALERT_COOLDOWN_MINUTES', '5'))
+    
+    def _should_email_notifications_enabled(self):
+        """Check if email notifications are enabled in settings"""
+        try:
+            from database.models import settings_model
+            all_settings = settings_model.get_settings('alerts')
+            # Settings returns {'alerts': {'emailNotifications': True, ...}}
+            alert_settings = all_settings.get('alerts', {})
+            if not alert_settings:
+                # Fallback: maybe it's just the settings dict
+                alert_settings = all_settings if isinstance(all_settings, dict) else {}
+            return alert_settings.get('emailNotifications', True)
+        except Exception as e:
+            print(f"⚠️ Could not load email notification settings: {e}")
+            return True
+    
+    def _reload_settings_if_needed(self):
+        """Reload settings from database every 30 seconds"""
+        if (datetime.now() - self.last_settings_check).total_seconds() > 30:
+            self.email_cooldown_minutes = self._get_alert_cooldown()
+            self.email_service.enabled = self._should_email_notifications_enabled()
+            self.last_settings_check = datetime.now()
         
     def send_alert(self, alert_data):
         """Send alert through multiple channels with smart filtering"""
+        # Reload settings from database if needed
+        self._reload_settings_if_needed()
+        
         # Enhance alert data
         alert_data['id'] = self._generate_alert_id()
         alert_data['timestamp'] = datetime.now().isoformat()
