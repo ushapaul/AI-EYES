@@ -227,7 +227,7 @@ class MultiCameraAISurveillance:
             self.activity_analyzers[camera_name] = SuspiciousActivityAnalyzer(
                 loitering_threshold=30.0,      # 30 seconds for loitering
                 abandoned_object_threshold=60.0,  # 60 seconds for abandoned objects
-                speed_threshold=50.0,          # pixels/second for running detection (LOWERED for better detection)
+                speed_threshold=15.0,          # pixels/second for running detection (15 px/s based on observed speeds)
                 crowd_threshold=5               # 5+ people for crowd
             )
             
@@ -802,6 +802,14 @@ class MultiCameraAISurveillance:
                         if new_ai_mode != old_mode:
                             self.detection_stats[camera_name]['ai_mode'] = new_ai_mode
                             print(f"🔄 [{camera_name}] AI Mode updated: {old_mode} → {new_ai_mode}")
+                
+                # ALSO update activity analyzer thresholds to pick up code changes
+                if camera_name in self.activity_analyzers:
+                    analyzer = self.activity_analyzers[camera_name]
+                    if analyzer.speed_threshold != 15.0:
+                        old_threshold = analyzer.speed_threshold
+                        analyzer.speed_threshold = 15.0
+                        print(f"🔄 [{camera_name}] Speed threshold updated: {old_threshold} → 15.0 px/s")
             except Exception as e:
                 pass  # Silently continue if reload fails
         
@@ -857,11 +865,12 @@ class MultiCameraAISurveillance:
             tracker = self.person_trackers.get(camera_name)
             activity_analyzer = self.activity_analyzers.get(camera_name)
             
-            if tracker and activity_analyzer and len(persons) > 0:
-                # Update tracker with person detections
+            if tracker and activity_analyzer:
+                # Always update tracker with current frame and detections (even if empty)
+                # This ensures position_history is maintained when detector temporarily misses persons
                 track_states = tracker.update(frame, persons)
-                
-                # Analyze tracks for suspicious activities
+
+                # Analyze tracks for suspicious activities (analyzer will handle empty/partial tracks)
                 suspicious_activities = activity_analyzer.analyze_frame(
                     detections=detections,
                     tracks=track_states,
@@ -922,8 +931,16 @@ class MultiCameraAISurveillance:
                         print(f"📸 Snapshot saved: {snapshot_path}")
                         
                     elif activity_type == 'running':
-                        # Don't send email for running, just log it
+                        # Send alert to database but not email (low priority activity)
+                        self.alert_manager.send_suspicious_activity_alert(
+                            activity_type='running',
+                            camera_id=camera_name,
+                            confidence=sus_activity.confidence,
+                            image_path=snapshot_path
+                        )
+                        self.alert_count += 1
                         print(f"🏃 RUNNING [Camera_{camera_name}]: {sus_activity.description}")
+                        print(f"📸 Snapshot saved: {snapshot_path}")
                         
                     elif activity_type == 'fighting':
                         self.alert_manager.send_suspicious_activity_alert(

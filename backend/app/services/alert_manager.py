@@ -42,7 +42,10 @@ class AlertManager:
             'intruder': 'high',
             'suspicious_activity': 'high',
             'weapon_detected': 'critical',
-            'armed_threat': 'critical'
+            'armed_threat': 'critical',
+            'running': 'low',
+            'crowd_formation': 'medium',
+            'loitering': 'medium'
         }
         
         print(f"🚨 Alert Manager initialized with SendGrid email service")
@@ -158,6 +161,9 @@ class AlertManager:
             'abandoned_object': 'suspicious_activity',
             'loitering': 'suspicious_activity',
             'unauthorized_entry': 'intruder',
+            'running': 'running',
+            'zone_intrusion': 'suspicious_activity',
+            'fighting': 'suspicious_activity'
         }
         
         email_type = type_mapping.get(activity_type, 'suspicious_activity')

@@ -244,4 +244,6 @@ cd "C:\Users\Lenovo\Desktop\AI eyes"; & "C:\Users\Lenovo\Desktop\AI eyes\venv_fr
 
 app_simple.py
 
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass  
 
+.\run_all.ps1  
