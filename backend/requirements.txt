@@ -17,14 +17,19 @@ torchvision>=0.15.0
 tensorflow>=2.13.0
 mediapipe>=0.10.0
 
+# Database
+pymongo>=4.5.0
+
 # Communication
 python-socketio>=5.9.0
 requests>=2.31.0
 python-dotenv>=1.0.0
+sendgrid>=6.10.0
 
 # Utilities
 matplotlib>=3.7.0
 eventlet>=0.33.3
+PyJWT>=2.8.0
 
 # Note: Some packages removed for Python 3.13 compatibility
 # face-recognition and dlib have compilation issues on newer Python versions

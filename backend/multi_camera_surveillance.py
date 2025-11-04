@@ -227,7 +227,7 @@ class MultiCameraAISurveillance:
             self.activity_analyzers[camera_name] = SuspiciousActivityAnalyzer(
                 loitering_threshold=30.0,      # 30 seconds for loitering
                 abandoned_object_threshold=60.0,  # 60 seconds for abandoned objects
-                speed_threshold=150.0,          # pixels/second for running detection
+                speed_threshold=50.0,          # pixels/second for running detection (LOWERED for better detection)
                 crowd_threshold=5               # 5+ people for crowd
             )
             
@@ -789,6 +789,21 @@ class MultiCameraAISurveillance:
     
     def process_frame_ai(self, frame, camera_name, frame_count):
         """AI processing pipeline for each camera - Performance Optimized"""
+        
+        # Reload AI mode from database every 30 frames (to pick up config changes without restart)
+        if frame_count % 30 == 0:
+            try:
+                from database.models import camera_model
+                camera_doc = camera_model.find_by_name(camera_name)
+                if camera_doc:
+                    new_ai_mode = camera_doc.get('ai_mode', 'both')
+                    if camera_name in self.detection_stats:
+                        old_mode = self.detection_stats[camera_name].get('ai_mode', 'both')
+                        if new_ai_mode != old_mode:
+                            self.detection_stats[camera_name]['ai_mode'] = new_ai_mode
+                            print(f"🔄 [{camera_name}] AI Mode updated: {old_mode} → {new_ai_mode}")
+            except Exception as e:
+                pass  # Silently continue if reload fails
         
         # Get AI mode for this camera
         ai_mode = self.detection_stats.get(camera_name, {}).get('ai_mode', 'both')

@@ -273,6 +273,52 @@ def create_app():
         except Exception as e:
             return {'error': str(e)}, 500
     
+    @app.route('/api/camera/<camera_id>/update', methods=['PUT', 'POST'])
+    def update_camera(camera_id):
+        """Update camera settings"""
+        try:
+            data = request.get_json()
+            print(f"📝 Update camera {camera_id}: {data}")
+            
+            # Prepare update data
+            update_data = {}
+            allowed_fields = ['name', 'location', 'url', 'type', 'username', 'password', 'ai_mode']
+            
+            for field in allowed_fields:
+                if field in data:
+                    update_data[field] = data[field]
+            
+            if not update_data:
+                return {'error': 'No valid fields to update'}, 400
+            
+            # Update camera in MongoDB
+            success = camera_model.update_by_id(camera_id, update_data)
+            
+            if success:
+                # Log the update
+                log_model.create_log(
+                    camera_id=camera_id,
+                    action='camera_updated',
+                    description=f"Camera settings updated: {', '.join(update_data.keys())}"
+                )
+                
+                # Get updated camera
+                updated_camera = camera_model.find_by_id(camera_id)
+                
+                return {
+                    'success': True,
+                    'message': 'Camera updated successfully',
+                    'camera': updated_camera
+                }
+            else:
+                return {'error': 'Camera not found or update failed'}, 404
+                
+        except Exception as e:
+            print(f"❌ Error updating camera: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'error': str(e)}, 500
+    
     @app.route('/api/camera/<camera_id>/snapshot', methods=['POST'])
     def capture_snapshot(camera_id):
         """Capture snapshot from camera"""

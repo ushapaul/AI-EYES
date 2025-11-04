@@ -164,13 +164,17 @@ class SuspiciousActivityAnalyzer:
         Returns:
             Speed in pixels per second
         """
+        track_id = track_state.get('track_id', 'unknown')
+        
         if 'position_history' not in track_state or len(track_state['position_history']) < 2:
+            print(f"  [Track {track_id}] No position history (len={len(track_state.get('position_history', []))})")
             return 0.0
         
         history = track_state['position_history']
         recent_positions = history[-5:]  # Last 5 positions
         
         if len(recent_positions) < 2:
+            print(f"  [Track {track_id}] Not enough recent positions ({len(recent_positions)})")
             return 0.0
         
         # Calculate total distance and time
@@ -190,7 +194,9 @@ class SuspiciousActivityAnalyzer:
             total_time += time_diff
         
         if total_time > 0:
-            return total_distance / total_time
+            speed = total_distance / total_time
+            print(f"  [Track {track_id}] Speed calculated: {speed:.1f} px/s (distance={total_distance:.1f}, time={total_time:.3f}s)")
+            return speed
         return 0.0
     
     def detect_loitering(self, track_state: Dict, current_time: float) -> Optional[SuspiciousActivity]:
@@ -486,6 +492,10 @@ class SuspiciousActivityAnalyzer:
         
         speed = self.calculate_movement_speed(track_state)
         
+        # Debug: Print speed for all tracks with significant movement
+        if speed > 10.0:  # Only log if moving more than 10 px/s
+            print(f"🏃 Track {track_id}: Speed = {speed:.1f} px/s (threshold: {self.speed_threshold:.1f} px/s)")
+        
         if speed > self.speed_threshold:
             zone = self.get_zone_for_point(center)
             zone_name = zone.name if zone else "unknown_area"
@@ -520,8 +530,16 @@ class SuspiciousActivityAnalyzer:
         
         # Analyze each track for person-based activities
         for track_id, track_state in tracks.items():
-            # Skip tracks without enough history
-            if track_state.get('frame_count', 0) < 10:
+            frame_count = track_state.get('frame_count', 0)
+            
+            # Running detection needs less history (fast movers don't stay long)
+            if frame_count >= 3:  # Only need 3 frames to detect running
+                running = self.detect_running(track_state, current_time)
+                if running:
+                    activities.append(running)
+            
+            # Skip tracks without enough history for other detections
+            if frame_count < 10:
                 continue
             
             # Detect loitering
@@ -538,11 +556,6 @@ class SuspiciousActivityAnalyzer:
             unauthorized = self.detect_unauthorized_person(track_state, current_time)
             if unauthorized:
                 activities.append(unauthorized)
-            
-            # Detect running
-            running = self.detect_running(track_state, current_time)
-            if running:
-                activities.append(running)
         
         # Detect weapon-related activities
         weapon_activities = self.detect_weapon(detections, tracks, current_time)
